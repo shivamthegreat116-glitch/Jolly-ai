@@ -36,6 +36,12 @@ export default function ChatPage() {
   const [videoRoomUrl, setVideoRoomUrl] = useState<string | null>(null);
   const [escalationLoading, setEscalationLoading] = useState(false);
 
+  // Save & End Chat state
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [endChatModalOpen, setEndChatModalOpen] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   // Camera & Video state
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -357,6 +363,117 @@ export default function ChatPage() {
     void send(transcriptDraft, voiceOn ? feats : undefined);
   }
 
+  function showToast(msg: string) {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 3200);
+  }
+
+  async function copyMessage(text: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      showToast("Response copied to clipboard");
+      setTimeout(() => {
+        setCopiedIndex((current) => (current === index ? null : current));
+      }, 2000);
+    } catch {
+      showToast("Unable to copy response to clipboard");
+    }
+  }
+
+  function generateTranscriptText(): string {
+    const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    let content = `=======================================================\n`;
+    content += `JOLLY AI - CONFIDENTIAL CONVERSATION & SUPPORT RECORD\n`;
+    content += `Session ID: ${sessionId || "Local Session"}\n`;
+    content += `Date & Time: ${now} (IST)\n`;
+    content += `Language: ${lang.toUpperCase()}\n`;
+    content += `=======================================================\n\n`;
+
+    content += `--- CONVERSATION TRANSCRIPT ---\n\n`;
+    messages.forEach((m, idx) => {
+      const speaker = m.role === "user" ? "YOU" : "JOLLY AI";
+      content += `[${idx + 1}] ${speaker}:\n${m.text}\n\n`;
+    });
+
+    content += `=======================================================\n`;
+    content += `EMERGENCY & CRISIS HELPLINES (INDIA - 24/7 FREE):\n`;
+    content += `- Tele-MANAS (Mental Health & Distress): 14416 / 1800-891-4416\n`;
+    content += `- Pan-India National Emergency: 112 (Police, Fire, Ambulance)\n`;
+    content += `- National Helpline Against Atrocities (NHAA): 14566\n`;
+    content += `- KIRAN Psychosocial Support: 1800-599-0019\n`;
+    content += `\nPRIVACY NOTICE:\n`;
+    content += `This transcript was generated locally on your device.\n`;
+    content += `No surveillance data is transmitted without your explicit consent.\n`;
+    content += `=======================================================\n`;
+    return content;
+  }
+
+  function downloadTranscript() {
+    if (messages.length === 0) {
+      showToast("No messages to download yet");
+      return;
+    }
+    const text = generateTranscriptText();
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `jolly_ai_conversation_${dateStr}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setSaveModalOpen(false);
+    showToast("Conversation transcript downloaded (.txt)");
+  }
+
+  async function copyAllMessages() {
+    if (messages.length === 0) {
+      showToast("No messages to copy yet");
+      return;
+    }
+    const text = generateTranscriptText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setSaveModalOpen(false);
+      showToast("Full conversation transcript copied to clipboard");
+    } catch {
+      showToast("Could not copy full transcript");
+    }
+  }
+
+  function saveToSessionSummary() {
+    const currentSummary = sessionStorage.getItem("jolly_summary") || "";
+    const conversationSummaryText = messages
+      .map((m) => `${m.role === "user" ? "User" : "Jolly AI"}: ${m.text}`)
+      .join("\n\n");
+
+    const combined = currentSummary
+      ? `${currentSummary}\n\n--- Conversation Record ---\n${conversationSummaryText}`
+      : conversationSummaryText;
+
+    sessionStorage.setItem("jolly_summary", combined);
+    setSaveModalOpen(false);
+    showToast("Conversation saved to your review summary");
+  }
+
+  function handleEndChatAndReview() {
+    saveToSessionSummary();
+    setEndChatModalOpen(false);
+    stopCamera();
+    router.push("/summary");
+  }
+
+  function handleQuickExit() {
+    stopCamera();
+    sessionStorage.clear();
+    window.location.replace("https://www.google.com");
+  }
+
   const quickSafetyChips = [
     { label: "Yes, I am safe here", text: "Yes, I am safe where I am right now." },
     { label: "I am in immediate danger", text: "No, I am not safe and need help." },
@@ -396,8 +513,8 @@ export default function ChatPage() {
             </select>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-stone-600">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <label className="hidden sm:flex items-center gap-1.5 text-xs text-stone-600">
             <input
               type="checkbox"
               className="rounded text-sage-700"
@@ -406,6 +523,24 @@ export default function ChatPage() {
             />
             <span>Speak replies</span>
           </label>
+          <button
+            type="button"
+            onClick={() => setSaveModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-xs hover:border-sand-400 hover:bg-sand-50 active:scale-95 transition"
+            title="Save responses or download transcript"
+          >
+            <span>💾</span>
+            <span className="hidden sm:inline">Save Chat</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setEndChatModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-xs hover:bg-rose-100 active:scale-95 transition"
+            title="End conversation safely"
+          >
+            <span>🛑</span>
+            <span>End Chat</span>
+          </button>
           <EmergencyButton />
         </div>
       </header>
@@ -567,18 +702,35 @@ export default function ChatPage() {
 
       {/* Message Flow */}
       <div className="mt-4 flex-1 space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user"
-                ? "ml-8 whitespace-pre-line rounded-2xl bg-sage-700 px-4 py-3 leading-relaxed text-white shadow-sm"
-                : "mr-8 whitespace-pre-line rounded-2xl bg-sand-100 px-4 py-3 leading-relaxed text-stone-800"
-            }
-          >
-            {m.text}
-          </div>
-        ))}
+        {messages.map((m, i) =>
+          m.role === "user" ? (
+            <div
+              key={i}
+              className="ml-8 whitespace-pre-line rounded-2xl bg-sage-700 px-4 py-3 leading-relaxed text-white shadow-sm"
+            >
+              {m.text}
+            </div>
+          ) : (
+            <div
+              key={i}
+              className="mr-8 whitespace-pre-line rounded-2xl bg-sand-100 px-4 py-3 leading-relaxed text-stone-800 shadow-sm"
+            >
+              <div>{m.text}</div>
+              <div className="mt-2 flex items-center justify-between border-t border-sand-200/80 pt-1.5 text-[11px] text-stone-500">
+                <span className="font-medium text-stone-400">Jolly AI Support</span>
+                <button
+                  type="button"
+                  onClick={() => void copyMessage(m.text, i)}
+                  className="flex items-center gap-1 rounded border border-sand-200 bg-white/80 px-2 py-0.5 text-[11px] font-medium text-stone-600 shadow-2xs hover:bg-white hover:text-stone-900 active:scale-95 transition"
+                  title="Copy this AI response"
+                >
+                  <span>{copiedIndex === i ? "✓" : "📋"}</span>
+                  <span>{copiedIndex === i ? "Copied" : "Copy response"}</span>
+                </button>
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       {/* Quick Suggestion Chips */}
@@ -776,6 +928,143 @@ export default function ChatPage() {
 
       {shareDest && sessionId && (
         <ShareConfirmModal sessionId={sessionId} destination={shareDest} onClose={() => setShareDest(null)} />
+      )}
+
+      {/* Save Responses & Transcript Modal */}
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-sand-200 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💾</span>
+                <h2 className="text-lg font-bold text-stone-800">Save Your Responses</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(false)}
+                className="rounded-lg p-1 text-stone-400 hover:bg-sand-100 hover:text-stone-600"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-stone-600 leading-relaxed">
+              You can save, copy, or download your conversation and advice for your records, for legal support, or to share with a counselor.
+            </p>
+
+            <div className="mt-4 space-y-2.5">
+              <button
+                type="button"
+                onClick={downloadTranscript}
+                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📄</span>
+                  <div>
+                    <div className="font-bold text-stone-800">Download Transcript (.txt)</div>
+                    <div className="font-normal text-stone-500">Save full text file with timestamps and helpline numbers</div>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-sage-700">Download ↓</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void copyAllMessages()}
+                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📋</span>
+                  <div>
+                    <div className="font-bold text-stone-800">Copy Entire Conversation</div>
+                    <div className="font-normal text-stone-500">Copy all questions and answers to clipboard</div>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-sage-700">Copy 📋</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={saveToSessionSummary}
+                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📝</span>
+                  <div>
+                    <div className="font-bold text-stone-800">Save to My Summary</div>
+                    <div className="font-normal text-stone-500">Stores responses for review in your Summary page</div>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-sage-700">Save 💾</span>
+              </button>
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(false)}
+                className="rounded-lg border border-sand-300 px-4 py-2 text-xs font-medium text-stone-700 hover:bg-sand-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* End Chat Confirmation Modal */}
+      {endChatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-sand-200 pb-3">
+              <span className="text-2xl">🛑</span>
+              <h2 className="text-lg font-bold text-stone-800">End Conversation</h2>
+            </div>
+            <p className="mt-3 text-xs text-stone-600 leading-relaxed">
+              You are in control. You can end this conversation at any moment. Would you like to save your responses before ending, or exit quickly for privacy?
+            </p>
+
+            <div className="mt-5 space-y-2.5">
+              <button
+                type="button"
+                onClick={handleEndChatAndReview}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-sage-700 p-3 text-center text-xs font-semibold text-white shadow hover:bg-sage-600 active:scale-95 transition"
+              >
+                <span>💾</span>
+                <span>Save Responses & Review Summary</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleQuickExit}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-center text-xs font-semibold text-rose-700 shadow-2xs hover:bg-rose-100 active:scale-95 transition"
+                title="Immediately purges browser session and exits to Google"
+              >
+                <span>⚡</span>
+                <span>Quick Privacy Exit (Clear History)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEndChatModalOpen(false)}
+                className="w-full rounded-xl border border-sand-300 p-2.5 text-center text-xs font-medium text-stone-600 hover:bg-sand-50 active:scale-95 transition"
+              >
+                Continue Chatting
+              </button>
+            </div>
+
+            <p className="mt-4 text-center text-[11px] text-stone-400">
+              Need immediate emergency help? Call <strong>112</strong> (Emergency) or <strong>14416</strong> (Tele-MANAS) anytime.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2.5 text-xs font-medium text-white shadow-lg">
+          <span>✓</span>
+          <span>{toastMessage}</span>
+        </div>
       )}
     </main>
   );
