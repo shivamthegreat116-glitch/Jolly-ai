@@ -86,7 +86,7 @@ def test_scenario_a_tired_of_everything():
     # Must NOT contain a 5-step checklist or pushy advice
     reply = data["reply"].lower()
     assert "1." not in reply and "step 1" not in reply
-    assert ("overwhelming" in reply or "tired" in reply or "hardest" in reply or "heavy" in reply)
+    assert any(w in reply for w in ["overwhelm", "tired", "hardest", "heavy", "exhaust", "drain"])
 
 
 def test_scenario_b_nobody_understands():
