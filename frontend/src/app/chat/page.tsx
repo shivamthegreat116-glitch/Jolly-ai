@@ -31,6 +31,10 @@ export default function ChatPage() {
   const [error, setError] = useState("");
   const [currentQuestionId, setCurrentQuestionId] = useState<string>("Q01_SAFETY");
   const [clarificationCount, setClarificationCount] = useState<number>(0);
+  const [conversationMode, setConversationMode] = useState<string>("assessment");
+  const [crisisLevel, setCrisisLevel] = useState<string>("none");
+  const [videoRoomUrl, setVideoRoomUrl] = useState<string | null>(null);
+  const [escalationLoading, setEscalationLoading] = useState(false);
 
   // Camera & Video state
   const [cameraOn, setCameraOn] = useState(false);
@@ -186,6 +190,10 @@ export default function ChatPage() {
         assessment: unknown;
         draft_summary: string;
         voice_signal_status: string;
+        conversation_mode?: string;
+        crisis_level?: string;
+        video_room_url?: string;
+        escalation_event_id?: string;
       }>("/api/chat", {
         method: "POST",
         body: JSON.stringify({
@@ -210,6 +218,9 @@ export default function ChatPage() {
         }
       }
       setCrisis(Boolean(r.crisis_mode));
+      if (r.conversation_mode) setConversationMode(r.conversation_mode);
+      if (r.crisis_level) setCrisisLevel(r.crisis_level);
+      if (r.video_room_url) setVideoRoomUrl(r.video_room_url);
       sessionStorage.setItem("jolly_assessment", JSON.stringify(r.assessment));
       sessionStorage.setItem("jolly_summary", r.draft_summary || "");
       sessionStorage.setItem("jolly_voice_status", r.voice_signal_status);
@@ -221,6 +232,29 @@ export default function ChatPage() {
       setError("Your message was not sent. You can try again, or use the emergency-help button if you need immediate resources.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function connectWithCounselor() {
+    setEscalationLoading(true);
+    try {
+      const res = await api<{
+        escalation_id: string;
+        room_url: string;
+        message: string;
+      }>("/api/video/escalate", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: sessionId,
+          reason: "User requested human counselor video consultation",
+        }),
+      });
+      setVideoRoomUrl(res.room_url);
+      window.open(res.room_url, "_blank", "noopener,noreferrer");
+    } catch {
+      setError("Unable to initialize counselor room. Please call Tele-MANAS (14416) or Emergency (112) directly.");
+    } finally {
+      setEscalationLoading(false);
     }
   }
 
@@ -376,30 +410,99 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {crisis && (
-        <div className="mt-4 rounded-2xl border border-clay-500 bg-orange-50 p-4 shadow-sm">
-          <p className="font-semibold text-clay-900">Let us slow down for a moment.</p>
-          <p className="mt-1 text-sm text-clay-800">
-            If you are in immediate danger, please use emergency help directly. Jolly AI will not
-            contact anyone unless you explicitly confirm.
+      {/* Dynamic Conversational Mode Indicator */}
+      {conversationMode === "listening" && (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs text-emerald-900 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🎧</span>
+            <div>
+              <strong>Active Listening Mode:</strong> Holding space for you. No advice, no checklists. Speak freely.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConversationMode("assessment")}
+            className="rounded bg-white px-2 py-0.5 text-xs text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+          >
+            Resume Assessment
+          </button>
+        </div>
+      )}
+
+      {conversationMode === "emotional_support" && (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-sky-300 bg-sky-50 px-3.5 py-2 text-xs text-sky-900 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-base">💙</span>
+            <div>
+              <strong>Empathetic Support:</strong> We are here with you. You don't have to figure everything out at once.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(conversationMode === "crisis_support" || conversationMode === "human_escalation" || crisis || crisisLevel === "suicidal_ideation" || crisisLevel === "imminent_danger") && (
+        <div className="mt-4 rounded-2xl border-2 border-rose-500 bg-rose-50/95 p-4 shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🚨</span>
+            <p className="font-bold text-rose-900">Safety & Immediate Indian Helplines (24/7 Free)</p>
+          </div>
+          <p className="mt-1 text-sm text-rose-800">
+            Your safety comes first. Confidential, professional help is available right now:
           </p>
-          <p className="mt-2 text-sm font-medium text-clay-900">Are you in immediate danger right now?</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-lg bg-clay-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-clay-500"
-              onClick={() => {
-                setUnsafe(true);
-                setShareDest("emergency_help_resources");
-              }}
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <a
+              href="tel:14416"
+              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
             >
-              Yes — show emergency resources
-            </button>
-            <button
-              className="rounded-lg border border-clay-300 bg-white px-4 py-2 text-sm text-stone-700 hover:bg-stone-50"
-              onClick={() => setUnsafe(false)}
+              <span className="text-sm font-bold text-rose-900">📞 14416</span>
+              <span className="text-[10px] text-stone-600">Tele-MANAS (Mental Health)</span>
+            </a>
+            <a
+              href="tel:112"
+              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
             >
-              No / I am safe for now
+              <span className="text-sm font-bold text-rose-900">🚨 112</span>
+              <span className="text-[10px] text-stone-600">Emergency (Police / Med)</span>
+            </a>
+            <a
+              href="tel:14566"
+              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
+            >
+              <span className="text-sm font-bold text-rose-900">🛡️ 14566</span>
+              <span className="text-[10px] text-stone-600">NHAA (Atrocities Helpline)</span>
+            </a>
+            <a
+              href="tel:18005990019"
+              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
+            >
+              <span className="text-sm font-bold text-rose-900">💙 1800-599-0019</span>
+              <span className="text-[10px] text-stone-600">KIRAN (Psychosocial)</span>
+            </a>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-rose-200">
+            <button
+              type="button"
+              disabled={escalationLoading}
+              onClick={() => void connectWithCounselor()}
+              className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-rose-800 active:scale-95 transition"
+            >
+              <span>🎥</span>
+              <span>{escalationLoading ? "Connecting..." : "Connect with Human Counselor (Video/Audio)"}</span>
             </button>
+            {videoRoomUrl && (
+              <a
+                href={videoRoomUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-rose-400 bg-white px-3 py-2 text-xs font-medium text-rose-800 hover:bg-rose-50"
+              >
+                👉 Re-enter Consultation Room
+              </a>
+            )}
+            <p className="text-[11px] text-stone-600 italic">
+              Zero AI surveillance: Counselor video calls are 100% confidential. AI does not listen or record.
+            </p>
           </div>
         </div>
       )}
@@ -539,9 +642,38 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* Supportive Intent Quick Chips */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-stone-600">
+        <span className="text-[11px] font-medium text-stone-400">Quick needs:</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void send("Stop giving me solutions. I just want someone to listen.")}
+          className="rounded-full border border-sand-300 bg-white px-2.5 py-1 text-xs text-stone-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800 transition"
+        >
+          🎧 Just listen (no advice)
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void send("Can you just stay here and talk to me for a while?")}
+          className="rounded-full border border-sand-300 bg-white px-2.5 py-1 text-xs text-stone-700 shadow-sm hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800 transition"
+        >
+          💙 Stay & talk with me
+        </button>
+        <button
+          type="button"
+          disabled={busy || escalationLoading}
+          onClick={() => void connectWithCounselor()}
+          className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-800 shadow-sm hover:bg-rose-100 transition"
+        >
+          🎥 Counselor Video
+        </button>
+      </div>
+
       {/* Input Form */}
       <form
-        className="mt-3 flex gap-2"
+        className="mt-2 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void send(input);

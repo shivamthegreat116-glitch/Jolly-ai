@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine, run_migrations
+import app.models  # ensure models registered on Base
 from app.routers import public, staff
 from app.seed import seed_if_empty
 

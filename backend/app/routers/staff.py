@@ -5,7 +5,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Assessment, AuditLog, CaseReview, Conversation, KnowledgeDoc, Referral, StaffUser, UserSession, new_id, utcnow
+from app.models import (
+    Assessment,
+    AuditLog,
+    CaseReview,
+    Conversation,
+    EscalationEvent,
+    KnowledgeDoc,
+    Referral,
+    StaffUser,
+    UserSession,
+    new_id,
+    utcnow,
+)
 from app.security import create_access_token, decode_token, verify_password
 from app.services.audit import write_audit
 from app.services.cleanup import run_retention_cleanup
@@ -255,4 +267,91 @@ def cleanup_expired_data(user: StaffUser = Depends(require_admin), db: Session =
         "purged_assessments": result.assessments_purged,
         "purged_voice_metadata": result.voice_metadata_purged,
     }
+
+
+@router.get("/staff/escalations")
+def list_escalations(
+    status: str | None = None,
+    user: StaffUser = Depends(current_staff),
+    db: Session = Depends(get_db),
+):
+    """Retrieves crisis escalation events for human counselor response."""
+    q = db.query(EscalationEvent)
+    if status:
+        q = q.filter(EscalationEvent.status == status)
+    rows = q.order_by(EscalationEvent.escalated_at.desc()).limit(50).all()
+    out = []
+    for e in rows:
+        out.append(
+            {
+                "id": e.id,
+                "session_id": e.session_id,
+                "conversation_id": e.conversation_id,
+                "crisis_level": e.crisis_level,
+                "trigger_summary": e.trigger_summary,
+                "status": e.status,
+                "assigned_staff_id": e.assigned_staff_id,
+                "video_room_id": e.video_room_id,
+                "video_room_url": e.video_room_url,
+                "escalated_at": e.escalated_at.isoformat() if e.escalated_at else None,
+                "resolved_at": e.resolved_at.isoformat() if e.resolved_at else None,
+            }
+        )
+    write_audit(
+        db,
+        actor=user.email,
+        action="list_escalations",
+        purpose="View crisis escalation queue",
+        resource_type="EscalationEvent",
+    )
+    return out
+
+
+@router.post("/staff/escalations/{escalation_id}/acknowledge")
+def acknowledge_escalation(
+    escalation_id: str,
+    user: StaffUser = Depends(current_staff),
+    db: Session = Depends(get_db),
+):
+    """Counselor acknowledges a crisis event and claims responsibility for outreach."""
+    e = db.query(EscalationEvent).filter(EscalationEvent.id == escalation_id).first()
+    if not e:
+        raise HTTPException(404, "Escalation event not found")
+    e.status = "in_progress"
+    e.assigned_staff_id = user.id
+    db.commit()
+    write_audit(
+        db,
+        actor=user.email,
+        action="acknowledge_escalation",
+        purpose="Counselor acknowledged crisis event",
+        resource_type="EscalationEvent",
+        resource_id=e.id,
+    )
+    return {"ok": True, "escalation_id": e.id, "video_room_url": e.video_room_url}
+
+
+@router.post("/staff/escalations/{escalation_id}/resolve")
+def resolve_escalation(
+    escalation_id: str,
+    user: StaffUser = Depends(current_staff),
+    db: Session = Depends(get_db),
+):
+    """Marks an escalation event as resolved following counselor or emergency intervention."""
+    e = db.query(EscalationEvent).filter(EscalationEvent.id == escalation_id).first()
+    if not e:
+        raise HTTPException(404, "Escalation event not found")
+    e.status = "resolved"
+    e.resolved_at = utcnow()
+    db.commit()
+    write_audit(
+        db,
+        actor=user.email,
+        action="resolve_escalation",
+        purpose="Counselor marked crisis event as resolved",
+        resource_type="EscalationEvent",
+        resource_id=e.id,
+    )
+    return {"ok": True, "escalation_id": e.id}
+
 

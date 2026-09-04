@@ -53,6 +53,7 @@ class Conversation(Base):
     encrypted_text: Mapped[str] = mapped_column(Text, default="")
     approved_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     active_question_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default="Q01_SAFETY")
+    conversation_mode: Mapped[str | None] = mapped_column(String(32), nullable=True, default="assessment")
     findings_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="{}")
     summary_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retention_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -160,3 +161,20 @@ class AuditLog(Base):
     resource_id: Mapped[str] = mapped_column(String(64), default="")
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     immutable: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class EscalationEvent(Base):
+    __tablename__ = "escalation_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("user_sessions.id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True)
+    crisis_level: Mapped[str] = mapped_column(String(32))  # passive_death_wish | suicidal_ideation | imminent_danger
+    trigger_summary: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending | acknowledged | in_progress | resolved
+    assigned_staff_id: Mapped[str | None] = mapped_column(ForeignKey("staff_users.id"), nullable=True)
+    video_room_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    video_room_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    escalated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+

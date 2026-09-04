@@ -25,6 +25,7 @@ def run_migrations(target_engine):
         for sql in [
             "ALTER TABLE conversations ADD COLUMN active_question_id VARCHAR(64) DEFAULT 'Q01_SAFETY'",
             "ALTER TABLE conversations ADD COLUMN findings_json TEXT DEFAULT '{}'",
+            "ALTER TABLE conversations ADD COLUMN conversation_mode VARCHAR(32) DEFAULT 'assessment'",
             "ALTER TABLE assessments ADD COLUMN question_id VARCHAR(64)",
         ]:
             try:

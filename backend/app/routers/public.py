@@ -14,6 +14,7 @@ from app.models import (
     AuditLog,
     CaseReview,
     Conversation,
+    EscalationEvent,
     Message,
     Referral,
     UserSession,
@@ -25,12 +26,16 @@ from app.seed import default_retention
 from app.services.assessment_state_machine import process_assessment_turn
 from app.services.audit import write_audit
 from app.services.chat_engine import next_assistant_reply
+from app.services.crisis_config import get_crisis_resources
+from app.services.crisis_detector import detect_crisis_level
+from app.services.emotional_support_engine import generate_emotional_reply
 from app.services.llm import generate_llm_reply
 from app.services.nlp import conversation_signals_from_messages, detect_language
 from app.services.question_registry import get_initial_question_id, get_question_text
 from app.services.rag import retrieve
 from app.services.speech import synthesize_speech, transcribe_whisper
 from app.services.svi import VoiceSignals, compute_svi
+from app.services.video_session_service import create_video_room
 
 logger = logging.getLogger("jolly.public")
 router = APIRouter(prefix="/api")
@@ -56,6 +61,12 @@ class ChatIn(BaseModel):
     image_base64: str | None = None
     question_id: str | None = None
     clarification_count: int = 0
+    mode: str | None = None
+
+
+class EscalateIn(BaseModel):
+    session_id: str
+    reason: str | None = None
 
 
 class SummaryIn(BaseModel):
@@ -221,6 +232,11 @@ async def chat(payload: ChatIn, db: Session = Depends(get_db)):
             "draft_summary": "",
             "crisis_mode": False,
             "voice_signal_status": "unavailable",
+            "conversation_mode": "assessment",
+            "crisis_level": "none",
+            "resources": None,
+            "escalation_event_id": None,
+            "video_room_url": None,
         }
 
     # BIND CURRENT QUESTION ID
@@ -230,6 +246,182 @@ async def chat(payload: ChatIn, db: Session = Depends(get_db)):
     elif payload.phase == "need" and not payload.question_id:
         active_qid = "Q02_SUPPORT_NEED"
 
+    # PRE-LLM SAFETY GATE & INTENT CLASSIFICATION
+    safety_classification = detect_crisis_level(user_text)
+    effective_mode = payload.mode or safety_classification.conversation_mode
+    crisis_level = safety_classification.crisis_level
+
+    # BRANCH A: HIGH-SEVERITY CRISIS (Tier 3: suicidal_ideation, Tier 4: imminent_danger)
+    if crisis_level in ["suicidal_ideation", "imminent_danger"]:
+        escalation = (
+            db.query(EscalationEvent)
+            .filter(
+                EscalationEvent.session_id == s.id,
+                EscalationEvent.status.in_(["pending", "acknowledged", "in_progress"]),
+            )
+            .order_by(EscalationEvent.escalated_at.desc())
+            .first()
+        )
+        if not escalation:
+            room_info = create_video_room(s.id)
+            escalation = EscalationEvent(
+                id=new_id(),
+                session_id=s.id,
+                conversation_id=conv.id,
+                crisis_level=crisis_level,
+                trigger_summary=f"Triggers: {', '.join(safety_classification.detected_triggers) or user_text[:100]}",
+                status="pending",
+                video_room_id=room_info["room_id"],
+                video_room_url=room_info["room_url"],
+                escalated_at=utcnow(),
+            )
+            db.add(escalation)
+
+        conv.conversation_mode = safety_classification.conversation_mode
+
+        history_msgs = []
+        if s.consent_storage:
+            stored_all = (
+                db.query(Message)
+                .filter(Message.conversation_id == conv.id)
+                .order_by(Message.created_at)
+                .all()
+            )
+            history_msgs = [
+                {"role": m.role, "content": decrypt_text(m.encrypted_content)}
+                for m in stored_all
+            ]
+
+        reply = await generate_emotional_reply(
+            user_text, safety_classification, s.language, history=history_msgs
+        )
+
+        if s.consent_storage:
+            db.add(
+                Message(
+                    id=new_id(),
+                    conversation_id=conv.id,
+                    role="assistant",
+                    encrypted_content=encrypt_text(reply),
+                    created_at=utcnow(),
+                )
+            )
+
+        conv_signals = conversation_signals_from_messages(prior or [user_text])
+        svi = compute_svi(
+            joined or user_text,
+            voice=voice,
+            conversation=conv_signals,
+            user_says_unsafe=True,
+            structured_indicators=["suicidal_ideation_or_imminent_danger"],
+        )
+        assessment = Assessment(
+            id=new_id(),
+            session_id=s.id,
+            conversation_id=conv.id,
+            question_id=active_qid,
+            svi_score=svi.svi_score,
+            risk_category=svi.risk_category,
+            confidence="high",
+            evidence_summary=f"Safety crisis detected: {crisis_level}. Immediate counselor escalation triggered.",
+            recommended_action=svi.recommended_action,
+            human_review_flag=True,
+            safety_override=True,
+            voice_signal_status=svi.voice_signal_status,
+            created_at=utcnow(),
+        )
+        db.add(assessment)
+        db.commit()
+
+        return {
+            "reply": reply,
+            "next_phase": "crisis",
+            "conversation_mode": safety_classification.conversation_mode,
+            "crisis_level": crisis_level,
+            "question_id": active_qid,
+            "next_question_id": active_qid,
+            "interpretation": None,
+            "citations": [],
+            "assessment": svi.public_user_view(),
+            "assessment_id": assessment.id,
+            "draft_summary": "",
+            "crisis_mode": True,
+            "voice_signal_status": svi.voice_signal_status,
+            "resources": get_crisis_resources(),
+            "escalation_event_id": escalation.id,
+            "video_room_url": escalation.video_room_url,
+        }
+
+    # BRANCH B: EMOTIONAL SUPPORT / ACTIVE LISTENING / VENTING / PRESENCE (Tests A, B, C, D, G, H)
+    if effective_mode in ["listening", "emotional_support", "clarification"]:
+        conv.conversation_mode = effective_mode
+
+        history_msgs = []
+        if s.consent_storage:
+            stored_all = (
+                db.query(Message)
+                .filter(Message.conversation_id == conv.id)
+                .order_by(Message.created_at)
+                .all()
+            )
+            history_msgs = [
+                {"role": m.role, "content": decrypt_text(m.encrypted_content)}
+                for m in stored_all
+            ]
+
+        reply = await generate_emotional_reply(
+            user_text, safety_classification, s.language, history=history_msgs
+        )
+
+        if s.consent_storage:
+            db.add(
+                Message(
+                    id=new_id(),
+                    conversation_id=conv.id,
+                    role="assistant",
+                    encrypted_content=encrypt_text(reply),
+                    created_at=utcnow(),
+                )
+            )
+
+        if s.language in {"en", "hi", "hinglish", "mr", "bn", "ta", "te"}:
+            pass
+        elif user_text:
+            s.language = detect_language(user_text)
+
+        conv_signals = conversation_signals_from_messages(prior or [user_text])
+        distress_inds = ["emotional_distress"] if crisis_level != "none" else []
+        svi = compute_svi(
+            joined or user_text,
+            voice=voice,
+            conversation=conv_signals,
+            user_says_unsafe=payload.user_says_unsafe or False,
+            structured_indicators=distress_inds,
+        )
+        db.commit()
+
+        draft_summary = _draft_summary(s.language, prior, svi if user_text else None)
+
+        return {
+            "reply": reply,
+            "next_phase": "support",
+            "conversation_mode": effective_mode,
+            "crisis_level": crisis_level,
+            "question_id": active_qid,
+            "next_question_id": active_qid,
+            "interpretation": None,
+            "citations": retrieve(user_text, k=2) if effective_mode == "clarification" else [],
+            "assessment": svi.public_user_view() if user_text else None,
+            "assessment_id": None,
+            "draft_summary": draft_summary,
+            "crisis_mode": False,
+            "voice_signal_status": svi.voice_signal_status if user_text else "unavailable",
+            "resources": get_crisis_resources() if crisis_level == "passive_death_wish" else None,
+            "escalation_event_id": None,
+            "video_room_url": None,
+        }
+
+    # BRANCH C: STRUCTURED ASSESSMENT (Question flow Q01-Q05)
     try:
         findings = json.loads(getattr(conv, "findings_json", None) or "{}")
     except Exception:
@@ -359,6 +551,11 @@ async def chat(payload: ChatIn, db: Session = Depends(get_db)):
         "draft_summary": draft_summary,
         "crisis_mode": bool(step.is_crisis or svi.crisis_mode),
         "voice_signal_status": svi.voice_signal_status if user_text else "unavailable",
+        "conversation_mode": "assessment",
+        "crisis_level": "none",
+        "resources": None,
+        "escalation_event_id": None,
+        "video_room_url": None,
     }
 
 
@@ -563,3 +760,63 @@ def share_confirm(payload: ShareConfirmIn, db: Session = Depends(get_db)):
             "or a case worker can follow up only if you also shared your summary."
         ),
     }
+
+
+@router.post("/video/escalate")
+def escalate_to_counselor(payload: EscalateIn, db: Session = Depends(get_db)):
+    """Generates a secure WebRTC / Jitsi video consultation room for human counselor escalation."""
+    s = _session(db, payload.session_id)
+    conv = (
+        db.query(Conversation)
+        .filter(Conversation.session_id == s.id)
+        .order_by(Conversation.created_at.desc())
+        .first()
+    )
+    escalation = (
+        db.query(EscalationEvent)
+        .filter(
+            EscalationEvent.session_id == s.id,
+            EscalationEvent.status.in_(["pending", "acknowledged", "in_progress"]),
+        )
+        .order_by(EscalationEvent.escalated_at.desc())
+        .first()
+    )
+    if not escalation:
+        room_info = create_video_room(s.id)
+        escalation = EscalationEvent(
+            id=new_id(),
+            session_id=s.id,
+            conversation_id=conv.id if conv else None,
+            crisis_level="user_requested_escalation",
+            trigger_summary=payload.reason or "User clicked 'Connect with Counselor' button",
+            status="pending",
+            video_room_id=room_info["room_id"],
+            video_room_url=room_info["room_url"],
+            escalated_at=utcnow(),
+        )
+        db.add(escalation)
+        db.commit()
+
+    write_audit(
+        db,
+        actor=s.anonymous_id,
+        action="video_escalation_requested",
+        purpose="User requested human counselor video consultation",
+        resource_type="EscalationEvent",
+        resource_id=escalation.id,
+    )
+    return {
+        "escalation_id": escalation.id,
+        "room_id": escalation.video_room_id,
+        "room_url": escalation.video_room_url,
+        "status": escalation.status,
+        "message": "Human counselor video consultation room ready. Connect securely.",
+        "helplines": get_crisis_resources(),
+    }
+
+
+@router.get("/crisis/resources")
+def crisis_resources():
+    """Provides Indian crisis helplines (Tele-MANAS, Emergency 112, NHAA 14566, KIRAN)."""
+    return get_crisis_resources()
+
