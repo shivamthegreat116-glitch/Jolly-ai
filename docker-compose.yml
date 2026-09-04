@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sahara
+      POSTGRES_PASSWORD: sahara
+      POSTGRES_DB: saharaai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sahara"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://sahara:sahara@postgres:5432/saharaai
+      SECRET_KEY: ${SECRET_KEY:-docker-dev-change-me}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ORIGINS: http://localhost:3000
+      CHROMA_PATH: /app/data/chroma
+      DEMO_COUNSELOR_EMAIL: counselor@sahara.demo
+      DEMO_COUNSELOR_PASSWORD: ${DEMO_COUNSELOR_PASSWORD:-change-me-counselor}
+      DEMO_ADMIN_EMAIL: admin@sahara.demo
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-change-me-admin}
+    volumes:
+      - backenddata:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  backenddata:

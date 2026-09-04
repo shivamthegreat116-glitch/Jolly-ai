@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Fictional sample dialogues for SIH demo and tests. Not real cases.",
+  "samples": [
+    {
+      "id": "en-support",
+      "language": "en",
+      "turns": [
+        {"role": "assistant", "text": "Hello. I am SaharaAI... are you safe where you are right now?"},
+        {"role": "user", "text": "Yes, I am at a community centre."},
+        {"role": "user", "text": "I want emotional support. I feel scared after what happened and I don't want to give all the details."},
+        {"role": "assistant", "text": "You can share as much or as little as you want..."}
+      ]
+    },
+    {
+      "id": "hi-legal",
+      "language": "hi",
+      "turns": [
+        {"role": "user", "text": "हाँ, मैं सुरक्षित हूँ। मुझे कानूनी जानकारी चाहिए। शिकायत कैसे करें यह समझ नहीं आ रहा।"},
+        {"role": "assistant", "text": "सत्यापित डायरेक्टरी से DEMO DATA दिखाया जाएगा। कानून का आविष्कार नहीं किया जाएगा।"}
+      ]
+    },
+    {
+      "id": "hinglish-distress",
+      "language": "hinglish",
+      "turns": [
+        {"role": "user", "text": "Main abhi safe hoon. Mujhe bahut darr lag raha hai, unhone dhamki di thi, lekin details nahi dena chahta."},
+        {"role": "assistant", "text": "Theek hai, koi pressure nahi. Main sun raha hoon."}
+      ]
+    }
+  ]
+}

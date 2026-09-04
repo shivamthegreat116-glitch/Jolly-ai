@@ -1,0 +1,23 @@
+# SaharaAI continuation plan
+
+## Current state
+
+- The FastAPI backend provides consent-gated chat, conservative SVI triage, encrypted optional storage, summaries, staff/admin access, referrals, and optional speech-provider adapters.
+- The Next.js frontend provides the consent, chat, voice, results, summary, privacy, staff, and admin flows.
+- Local browser voice input now collects only short-lived level samples for optional supporting features; raw audio is not retained.
+- Case-worker sharing is blocked until the user has separately confirmed the destination.
+
+## Local development
+
+1. Copy `.env.example` to `.env` and replace demo secrets before any shared deployment.
+2. Backend: `.tools/python/python.exe -m pip install -r requirements.txt`, then run from `backend` with `..\.tools\python\python.exe -m uvicorn app.main:app --reload --port 8000`.
+3. Frontend: `.tools\node-v20.18.1-win-x64\npm.cmd install`, then `npm run dev` from `frontend`.
+4. Validate with backend `pytest` and frontend `npm test` / `npm run build`.
+
+## Next build priorities
+
+1. Replace all demo referrals with administrator-verified official sources before public use.
+2. Add migration tooling (Alembic) and a retention-expiry cleanup job.
+3. Add end-to-end browser tests for consent, crisis, transcript correction, deletion, and confirmed sharing.
+4. Add additional reviewed language packs and test accessibility with keyboard-only and screen-reader flows.
+5. Use production secrets, HTTPS, rate limiting, monitoring, backups, and a formal deployment/privacy review before deployment.

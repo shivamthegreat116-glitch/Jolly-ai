@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-sand-50 text-stone-800 antialiased;
+}
+
+.disclaimer-bar {
+  @apply bg-amber-100 text-amber-950 text-sm px-4 py-2 text-center border-b border-amber-200;
+}
