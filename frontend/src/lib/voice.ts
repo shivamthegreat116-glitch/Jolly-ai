@@ -21,24 +21,80 @@ export function getSpeechRecognitionLang(lang: string): string {
   return LANG_SPEECH_MAP[lang] || "en-IN";
 }
 
-export function speak(text: string, lang: string) {
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+if (typeof window !== "undefined" && window.speechSynthesis) {
+  const updateVoices = () => {
+    cachedVoices = window.speechSynthesis.getVoices();
+  };
+  updateVoices();
+  if (window.speechSynthesis.onvoiceschanged !== undefined) {
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  }
+}
+
+export function stopSpeaking() {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+  try {
+    window.speechSynthesis.cancel();
+  } catch {
+    // Ignore cancellation errors
+  }
+}
+
+export function speak(
+  text: string,
+  lang: string,
+  onStart?: () => void,
+  onEnd?: () => void
+): boolean {
+  if (typeof window === "undefined" || !window.speechSynthesis) return false;
+
+  stopSpeaking();
+
+  if (!text.trim()) return false;
+
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 0.92;
   u.pitch = 1;
   const targetTag = getSpeechRecognitionLang(lang);
   u.lang = targetTag;
-  
-  const voices = window.speechSynthesis.getVoices();
+
+  const voices = cachedVoices.length ? cachedVoices : window.speechSynthesis.getVoices();
   const prefix = targetTag.split("-")[0];
-  const preferred = voices.find(
-    (v) =>
-      v.lang.startsWith(prefix) ||
-      (prefix === "en" && (v.lang.includes("IN") || v.name.toLowerCase().includes("india")))
-  );
-  if (preferred) u.voice = preferred;
-  window.speechSynthesis.speak(u);
+
+  // Progressive fallback for regional voices:
+  // 1. Exact match (e.g. en-IN or hi-IN)
+  // 2. Regional name match (e.g. India or Indian)
+  // 3. Language prefix match (e.g. en or hi)
+  // 4. Default voice
+  const preferred =
+    voices.find((v) => v.lang === targetTag) ||
+    voices.find(
+      (v) =>
+        v.lang.startsWith(prefix) &&
+        (v.lang.includes("IN") || v.name.toLowerCase().includes("india"))
+    ) ||
+    voices.find((v) => v.lang.startsWith(prefix)) ||
+    voices.find((v) => v.default) ||
+    voices[0];
+
+  if (preferred) {
+    u.voice = preferred;
+  }
+
+  if (onStart) u.onstart = onStart;
+  if (onEnd) {
+    u.onend = onEnd;
+    u.onerror = onEnd;
+  }
+
+  try {
+    window.speechSynthesis.speak(u);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function estimateFeaturesFromAnalyser(
@@ -60,7 +116,7 @@ export function estimateFeaturesFromAnalyser(
   const variance = volumes.reduce((a, b) => a + (b - mean) ** 2, 0) / volumes.length;
   const std = Math.sqrt(variance);
   const silent = volumes.filter((v) => v < 8).length / volumes.length;
-  
+
   return {
     speech_rate: wordCount > 0 ? Number((wordCount / durationSec).toFixed(2)) : null,
     pause_ratio: Number(silent.toFixed(2)),

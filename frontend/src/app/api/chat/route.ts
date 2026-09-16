@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 
 interface ChatRequest {
+  interaction_id?: string;
   session_id: string;
   message?: string;
   phase?: string;
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
   try {
     const payload: ChatRequest = await request.json();
     const sessionId = payload.session_id || crypto.randomUUID();
+    const interactionId = payload.interaction_id || crypto.randomUUID();
     const userText = (payload.transcript_override || payload.message || "").trim();
     const phase = payload.phase || "start";
     const currentQid = payload.question_id || "Q01_SAFETY";
@@ -51,6 +53,7 @@ export async function POST(request: Request) {
     // 1. Initial Greeting / Phase Start
     if (phase === "start" && !userText) {
       return NextResponse.json({
+        interaction_id: interactionId,
         reply:
           "Hello! 👋 I am Jolly AI, here to listen and help you find support at your own pace. " +
           "(Note: I am a support and triage tool, not a medical or emergency service 🛡️). " +
@@ -81,6 +84,7 @@ export async function POST(request: Request) {
       const videoRoomUrl = `https://meet.jit.si/nhaa-consultation-${sessionId.slice(0, 8)}-${roomToken}`;
 
       return NextResponse.json({
+        interaction_id: interactionId,
         reply:
           "I hear how painful and difficult things are right now, and I want you to be safe. 💙 Please know that you are not alone.\n\n" +
           "Free, confidential help is available right now:\n" +
@@ -119,10 +123,11 @@ export async function POST(request: Request) {
     const isListening = LISTENING_KEYWORDS.some((kw) => lower.includes(kw));
     if (isListening) {
       return NextResponse.json({
+        interaction_id: interactionId,
         reply:
           "I hear you completely. 💙 I will not give you any checklists, solutions, or unsolicited advice. " +
           "I am right here with you, and I am listening. Take all the time you need — speak or type whatever is on your mind.",
-        next_phase: phase,
+        next_phase: "ongoing_support",
         conversation_mode: "listening",
         crisis_level: "emotional_distress",
         question_id: currentQid,
@@ -174,12 +179,19 @@ export async function POST(request: Request) {
         "I hear you. How has this been impacting you emotionally, physically, or in your daily routine? Do you have anyone supportive around you right now?";
       draftSummary = `Recency recorded. Assessing personal impact and coping resources.`;
     } else if (phase === "impact" || currentQid === "Q05_IMPACT_COPING") {
-      nextPhase = "summary";
+      nextPhase = "ongoing_support";
       nextQid = null;
       baseReply =
         "Thank you for trusting me and sharing your experience. 🙏 You have handled a great deal. " +
-        "You can now review your summary, edit anything you want, or download your conversation records safely.";
-      draftSummary = `Assessment turns completed. Complainant reviewed coping impact. Ready for summary review.`;
+        "Your initial check-in is complete, but I am here with you for as long as you wish to talk. What else would you like to share?";
+      draftSummary = `Assessment turns completed. Complainant reviewed coping impact. Ready for ongoing support and summary review.`;
+    } else {
+      // Ongoing open emotional support mode - never forcibly ends!
+      nextPhase = "ongoing_support";
+      nextQid = null;
+      baseReply =
+        "I am right here with you. Take all the time you need to breathe, reflect, and share whatever feels comfortable.";
+      draftSummary = `Ongoing support conversation turn recorded.`;
     }
 
     // 5. Try calling NVIDIA NIM LLM if API Key is available
@@ -193,14 +205,16 @@ export async function POST(request: Request) {
 
     let aiReply = baseReply;
 
-    if (apiKey && userText.length > 5) {
+    if (apiKey && userText.length > 2) {
       try {
         const systemPrompt =
           "You are Jolly AI, an empathetic, trauma-informed support and triage companion for complainants accessing the National Helpline Against Atrocities (NHAA 14566) in India. " +
           "Provide genuine emotional validation, warmth, and active listening. " +
           "Never give unsolicited pushy advice or checklists when the user expresses sadness or grief. " +
           "Keep your responses concise (2 to 4 sentences), gentle, and human. " +
-          `The current phase is '${phase}'. Ensure you naturally include or transition to: "${baseReply}".`;
+          (baseReply
+            ? `Supportively guide the dialogue and naturally touch upon: "${baseReply}".`
+            : "Respond empathetically and keep holding space for the user.");
 
         const messages: Array<{ role: string; content: unknown }> = [
           { role: "system", content: systemPrompt },
@@ -208,7 +222,7 @@ export async function POST(request: Request) {
         ];
 
         // If camera snapshot is attached, pass vision format
-        if (payload.image_base64) {
+        if (payload.image_base64 && payload.image_base64.startsWith("data:image")) {
           messages[1] = {
             role: "user",
             content: [
@@ -243,8 +257,7 @@ export async function POST(request: Request) {
 
         if (llmRes.ok) {
           const llmData = await llmRes.json();
-          const generated =
-            llmData.choices?.[0]?.message?.content?.trim();
+          const generated = llmData.choices?.[0]?.message?.content?.trim();
           if (generated) {
             aiReply = generated;
           }
@@ -258,6 +271,7 @@ export async function POST(request: Request) {
     const sviScore = Math.min(85, Math.max(25, 30 + userText.length % 40));
 
     return NextResponse.json({
+      interaction_id: interactionId,
       reply: aiReply,
       next_phase: nextPhase,
       question_id: currentQid,
@@ -275,20 +289,28 @@ export async function POST(request: Request) {
         disclaimer: "Support and triage tool only — not a clinical or legal diagnosis.",
         crisis_mode: false,
       },
-      assessment_id: crypto.randomUUID(),
       draft_summary: draftSummary,
       crisis_mode: false,
       voice_signal_status: "available",
-      conversation_mode: "support",
+      conversation_mode: nextPhase === "ongoing_support" ? "ongoing_support" : "assessment",
       crisis_level: "none",
-      resources: null,
-      escalation_event_id: null,
       video_room_url: null,
+      escalation_event_id: null,
     });
-  } catch {
+  } catch (error) {
+    // Return graceful recovery rather than 500
     return NextResponse.json(
-      { error: "Error processing chat turn" },
-      { status: 500 }
+      {
+        reply: "I hear you, and I am right here with you. Please take your time, and continue whenever you feel ready.",
+        next_phase: "ongoing_support",
+        question_id: "Q01_SAFETY",
+        next_question_id: null,
+        crisis_mode: false,
+        voice_signal_status: "available",
+        conversation_mode: "ongoing_support",
+        draft_summary: "Session preserved during transient network recovery.",
+      },
+      { status: 200 }
     );
   }
 }
