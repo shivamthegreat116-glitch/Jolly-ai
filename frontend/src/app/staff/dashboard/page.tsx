@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/api";
+import { SanctuaryHeader } from "@/components/SanctuaryHeader";
 
 type CaseRow = {
   id: string;
@@ -28,12 +29,16 @@ export default function Dashboard() {
   async function load(filter = risk) {
     const token = sessionStorage.getItem("jolly_token");
     const q = filter ? `?risk=${encodeURIComponent(filter)}` : "";
-    const res = await fetch(`${API_URL}/api/staff/cases${q}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setRows(await res.json());
-    const s = await fetch(`${API_URL}/api/staff/stats`, { headers: { Authorization: `Bearer ${token}` } });
-    setStats(await s.json());
+    try {
+      const res = await fetch(`${API_URL}/api/staff/cases${q}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setRows(await res.json());
+      const s = await fetch(`${API_URL}/api/staff/stats`, { headers: { Authorization: `Bearer ${token}` } });
+      if (s.ok) setStats(await s.json());
+    } catch {
+      // ignore
+    }
   }
 
   useEffect(() => {
@@ -51,61 +56,128 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
-      <h1 className="text-3xl text-sage-800">Case-worker queue</h1>
-      <p className="mt-2 text-sm text-stone-600">
-        Only consented, approved summaries. Raw audio is not shown. Identity is not used in scoring.
-      </p>
-      {stats && (
-        <div className="mt-4 rounded-xl bg-white p-4 text-sm shadow-sm">
-          Anonymized totals: {JSON.stringify(stats.risk_counts)} · cases {String(stats.case_count)}
+    <div className="min-h-screen bg-bg-canvas text-text-primary flex flex-col font-body-md antialiased">
+      <SanctuaryHeader />
+
+      <main className="flex-1 max-w-5xl w-full mx-auto px-gutter-sm sm:px-gutter py-8 pt-20">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+          <div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-surface-container text-primary-container font-label-sm mb-1">
+              Case Worker Queue
+            </span>
+            <h1 className="font-headline-md text-text-primary">Consented Case Reviews</h1>
+            <p className="font-body-sm text-text-secondary mt-0.5">
+              Only shows complainant-approved summaries. Identity is not used in risk assessment.
+            </p>
+          </div>
         </div>
-      )}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {["", "Low", "Moderate", "High", "Critical"].map((r) => (
-          <button
-            key={r || "all"}
-            className="rounded-full border px-3 py-1"
-            onClick={() => {
-              setRisk(r);
-              void load(r);
-            }}
-          >
-            {r || "All"}
-          </button>
-        ))}
-      </div>
-      <div className="mt-6 space-y-4">
-        {rows.map((c) => (
-          <article key={c.id} className="rounded-2xl bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap gap-2 text-sm">
-              <span className="rounded-full bg-sand-100 px-2 py-0.5">{c.risk || "n/a"}</span>
-              <span>SVI {c.svi}</span>
-              <span>Confidence {c.confidence}</span>
-              <span>{c.language}</span>
-              <span>{c.status}</span>
-              <span>Voice {c.voice_signal_status}</span>
+
+        {stats && (
+          <div className="mb-6 rounded-2xl bg-surface-crisp p-4 border border-border-subtle/60 shadow-whisper text-sm text-text-secondary flex flex-wrap gap-4 items-center">
+            <span className="font-label-md font-medium text-text-primary">Aggregate Metrics:</span>
+            <span>Total Cases: <strong className="text-primary-container">{String(stats.case_count)}</strong></span>
+            <span>Risk Breakdown: {JSON.stringify(stats.risk_counts)}</span>
+          </div>
+        )}
+
+        {/* Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <span className="font-label-sm text-text-secondary mr-1">Filter by strain:</span>
+          {["", "Low", "Moderate", "High", "Critical"].map((r) => {
+            const isActive = risk === r;
+            return (
+              <button
+                key={r || "all"}
+                className={`px-3.5 py-1.5 rounded-full font-label-sm transition-all ${
+                  isActive
+                    ? "bg-primary-container text-surface-crisp shadow-xs"
+                    : "bg-surface-crisp border border-border-subtle/70 text-text-secondary hover:text-text-primary hover:bg-surface-container-low"
+                }`}
+                onClick={() => {
+                  setRisk(r);
+                  void load(r);
+                }}
+              >
+                {r || "All"}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Case Cards */}
+        <div className="space-y-4">
+          {rows.map((c) => (
+            <article
+              key={c.id}
+              className="rounded-3xl bg-surface-crisp p-6 shadow-whisper border border-border-subtle/60 space-y-3.5"
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-surface-container text-primary-container px-2.5 py-1 font-semibold">
+                  {c.risk || "Unspecified"}
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-bg-canvas border border-border-subtle/50 text-text-secondary">
+                  SVI {c.svi ?? "—"}
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-bg-canvas border border-border-subtle/50 text-text-secondary">
+                  Confidence {c.confidence ?? "—"}
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-bg-canvas border border-border-subtle/50 text-text-secondary">
+                  Lang: {c.language}
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-bg-canvas border border-border-subtle/50 text-text-secondary">
+                  Status: {c.status}
+                </span>
+                <span className="px-2.5 py-1 rounded-full bg-bg-canvas border border-border-subtle/50 text-text-secondary">
+                  Voice: {c.voice_signal_status}
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-bg-canvas border border-border-subtle/40">
+                <span className="block font-label-sm text-text-secondary mb-1">
+                  Complainant Approved Summary:
+                </span>
+                <p className="font-body-md text-text-primary whitespace-pre-wrap leading-relaxed">
+                  {c.approved_summary || "No summary text provided."}
+                </p>
+              </div>
+
+              {c.recommended_action && (
+                <p className="font-body-sm text-text-secondary">
+                  <strong className="text-primary-container">Suggested action:</strong> {c.recommended_action}
+                </p>
+              )}
+
+              <p className="text-xs text-text-secondary/70">{c.timestamp}</p>
+
+              <div className="pt-2 border-t border-border-subtle/50 flex flex-col sm:flex-row gap-2.5 items-center">
+                <input
+                  className="w-full sm:flex-1 rounded-xl bg-bg-canvas border border-border-subtle/60 p-2.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary-container"
+                  placeholder="Private case worker notes..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-1.5 shrink-0">
+                  {["reviewed", "contacted_with_consent", "referred", "resolved"].map((st) => (
+                    <button
+                      key={st}
+                      className="rounded-lg bg-surface-container hover:bg-surface-container-high px-2.5 py-1.5 text-xs text-primary-container font-medium transition-colors"
+                      onClick={() => setStatus(c.id, st)}
+                    >
+                      {st.replaceAll("_", " ")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </article>
+          ))}
+
+          {rows.length === 0 && (
+            <div className="rounded-3xl bg-surface-crisp p-10 text-center border border-border-subtle/60 text-text-secondary">
+              No consented cases currently in this queue.
             </div>
-            <p className="mt-3 whitespace-pre-wrap">{c.approved_summary || "No approved summary."}</p>
-            <p className="mt-2 text-sm text-stone-600">{c.recommended_action}</p>
-            <p className="mt-1 text-xs text-stone-400">{c.timestamp}</p>
-            <input
-              className="mt-3 w-full rounded-lg border p-2 text-sm"
-              placeholder="Private case notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-            <div className="mt-2 flex flex-wrap gap-2 text-sm">
-              {["reviewed", "contacted_with_consent", "referred", "resolved"].map((st) => (
-                <button key={st} className="rounded-lg border px-2 py-1" onClick={() => setStatus(c.id, st)}>
-                  {st.replaceAll("_", " ")}
-                </button>
-              ))}
-            </div>
-          </article>
-        ))}
-        {rows.length === 0 && <p className="text-stone-500">No consented cases in this filter.</p>}
-      </div>
-    </main>
+          )}
+        </div>
+      </main>
+    </div>
   );
 }

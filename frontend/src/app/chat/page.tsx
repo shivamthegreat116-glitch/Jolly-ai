@@ -5,11 +5,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { EmergencyButton } from "@/components/EmergencyButton";
 import { ShareConfirmModal } from "@/components/ShareConfirmModal";
+import { SanctuaryHeader } from "@/components/SanctuaryHeader";
 import { api } from "@/lib/api";
 import { STRINGS, type Lang } from "@/lib/i18n";
 import { estimateFeaturesFromAnalyser, getSpeechRecognitionLang, speak, type VoiceFeatures } from "@/lib/voice";
 
-type Msg = { role: "user" | "assistant"; text: string };
+type Msg = { role: "user" | "assistant"; text: string; time?: string };
+
+const LANGUAGES: { id: Lang; label: string }[] = [
+  { id: "en", label: "English" },
+  { id: "hi", label: "हिन्दी" },
+  { id: "hinglish", label: "Hinglish" },
+  { id: "mr", label: "मराठी" },
+  { id: "bn", label: "বাংলা" },
+  { id: "ta", label: "தமிழ்" },
+  { id: "te", label: "తెలుగు" },
+];
 
 export default function ChatPage() {
   const router = useRouter();
@@ -36,6 +47,11 @@ export default function ChatPage() {
   const [videoRoomUrl, setVideoRoomUrl] = useState<string | null>(null);
   const [escalationLoading, setEscalationLoading] = useState(false);
 
+  // Redesign state: Breathing Overlay & Voice Sanctuary Mode
+  const [showGrounding, setShowGrounding] = useState(false);
+  const [voiceSanctuaryOpen, setVoiceSanctuaryOpen] = useState(false);
+  const [voicePaused, setVoicePaused] = useState(false);
+
   // Save & End Chat state
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [endChatModalOpen, setEndChatModalOpen] = useState(false);
@@ -49,7 +65,7 @@ export default function ChatPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraStream = useRef<MediaStream | null>(null);
-  
+
   const volumes = useRef<number[]>([]);
   const recStart = useRef(0);
   const mediaStream = useRef<MediaStream | null>(null);
@@ -57,6 +73,7 @@ export default function ChatPage() {
   const levelFrame = useRef<number | null>(null);
   const speechActive = useRef(false);
   const activeRecognizer = useRef<SpeechRecognition | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   const loc = STRINGS[lang] || STRINGS.en;
 
@@ -73,6 +90,10 @@ export default function ChatPage() {
     void boot(sid);
   }, [router]);
 
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, busy]);
+
   async function boot(sid: string) {
     try {
       const r = await api<{
@@ -84,7 +105,8 @@ export default function ChatPage() {
         method: "POST",
         body: JSON.stringify({ session_id: sid, message: "", phase: "start" }),
       });
-      setMessages([{ role: "assistant", text: r.reply }]);
+      const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages([{ role: "assistant", text: r.reply, time: now }]);
       setPhase(r.next_phase);
       if (r.next_question_id) {
         setCurrentQuestionId(r.next_question_id);
@@ -129,17 +151,16 @@ export default function ChatPage() {
         audio: false,
       });
       cameraStream.current = stream;
-      setCameraOn(true);
       setFacingMode(mode);
+      setCameraOn(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string };
-      console.error("Camera access error:", e);
       if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
-        setError("Camera permission was denied. Please allow camera access in your browser/device settings.");
+        setError("Camera permission was denied. Please allow camera access in your device settings.");
       } else {
         setError("Could not open camera: " + (e.message || "Device or browser error"));
       }
@@ -182,7 +203,8 @@ export default function ChatPage() {
     if (!text.trim() || busy) return;
     setError("");
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text }]);
+    const timeNow = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setMessages((m) => [...m, { role: "user", text, time: timeNow }]);
     setInput("");
     const snapshot = captureCameraFrame();
     try {
@@ -213,7 +235,8 @@ export default function ChatPage() {
           image_base64: snapshot || undefined,
         }),
       });
-      setMessages((m) => [...m, { role: "assistant", text: r.reply }]);
+      const aiTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setMessages((m) => [...m, { role: "assistant", text: r.reply, time: aiTime }]);
       setPhase(r.next_phase);
       if (r.next_question_id) {
         if (r.next_question_id === currentQuestionId) {
@@ -265,8 +288,9 @@ export default function ChatPage() {
   }
 
   function startBrowserStt() {
-    const SR = (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognition }).webkitSpeechRecognition
-      || (window as unknown as { SpeechRecognition?: new () => SpeechRecognition }).SpeechRecognition;
+    const SR =
+      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognition }).webkitSpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: new () => SpeechRecognition }).SpeechRecognition;
     if (!SR) {
       alert("Browser speech recognition is unavailable in this browser. You can type instead — that never lowers your support.");
       return;
@@ -278,19 +302,24 @@ export default function ChatPage() {
     const rec = new SR();
     activeRecognizer.current = rec;
     rec.lang = getSpeechRecognitionLang(lang);
-    rec.interimResults = false;
-    
+    rec.interimResults = true;
+
     void startLevelSampling();
-    
+
     rec.onresult = (ev: SpeechRecognitionEvent) => {
-      const t = ev.results[0][0].transcript;
+      let t = "";
+      for (let i = 0; i < ev.results.length; ++i) {
+        t += ev.results[i][0].transcript;
+      }
       setTranscriptDraft(t);
-      setShowTranscript(true);
     };
     rec.onend = () => {
       stopLevelSampling();
       setIsRecording(false);
       activeRecognizer.current = null;
+      if (transcriptDraft.trim()) {
+        setShowTranscript(true);
+      }
     };
     rec.onerror = () => {
       stopLevelSampling();
@@ -305,13 +334,8 @@ export default function ChatPage() {
   }
 
   function stopBrowserStt() {
-    if (activeRecognizer.current) {
-      try {
-        activeRecognizer.current.stop();
-      } catch {
-        // pass
-      }
-    }
+    speechActive.current = false;
+    activeRecognizer.current?.stop();
     stopLevelSampling();
     setIsRecording(false);
   }
@@ -319,17 +343,16 @@ export default function ChatPage() {
   async function startLevelSampling() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!speechActive.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
       mediaStream.current = stream;
-      const context = new AudioContext();
-      audioContext.current = context;
-      const analyser = context.createAnalyser();
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      audioContext.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      context.createMediaStreamSource(stream).connect(analyser);
-      const samples = new Uint8Array(analyser.fftSize);
+      source.connect(analyser);
+
+      const samples = new Uint8Array(analyser.frequencyBinCount);
       const sampleLevel = () => {
         if (!speechActive.current) return;
         analyser.getByteTimeDomainData(samples);
@@ -360,7 +383,9 @@ export default function ChatPage() {
     const wordCount = transcriptDraft.trim().split(/\s+/).filter(Boolean).length;
     const feats = estimateFeaturesFromAnalyser(volumes.current, dur, wordCount);
     setShowTranscript(false);
-    void send(transcriptDraft, voiceOn ? feats : undefined);
+    const textToSend = transcriptDraft;
+    setTranscriptDraft("");
+    void send(textToSend, voiceOn ? feats : undefined);
   }
 
   function showToast(msg: string) {
@@ -395,7 +420,7 @@ export default function ChatPage() {
     content += `--- CONVERSATION TRANSCRIPT ---\n\n`;
     messages.forEach((m, idx) => {
       const speaker = m.role === "user" ? "YOU" : "JOLLY AI";
-      content += `[${idx + 1}] ${speaker}:\n${m.text}\n\n`;
+      content += `[${idx + 1}] ${speaker} (${m.time || ""}):\n${m.text}\n\n`;
     });
 
     content += `=======================================================\n`;
@@ -474,449 +499,630 @@ export default function ChatPage() {
     window.location.replace("https://www.google.com");
   }
 
-  const quickSafetyChips = [
-    { label: "Yes, I am safe here", text: "Yes, I am safe where I am right now." },
-    { label: "I am in immediate danger", text: "No, I am not safe and need help." },
-    { label: "I am not sure", text: "I am not completely sure if I am safe." },
-  ];
-
-  const quickNeedChips = [
-    { label: "Emotional support", text: "I need emotional support and someone to listen." },
-    { label: "Legal guidance", text: "I need legal advice and information about filing a complaint." },
-    { label: "Medical assistance", text: "I need medical help or healthcare support." },
-    { label: "NHAA 14566 pathway", text: "I want to understand the NHAA 14566 complaint process." },
-  ];
-
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-6">
-      <header className="flex items-center justify-between gap-2 border-b border-sand-200 pb-4">
-        <div>
-          <h1 className="text-2xl font-serif text-sage-800">Jolly AI</h1>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-xs text-stone-500">Language:</span>
-            <select
-              className="rounded-lg border border-sand-300 bg-white px-2 py-1 text-xs font-medium text-stone-700 shadow-sm"
-              value={lang}
-              onChange={(e) => {
-                const newLang = e.target.value as Lang;
-                setLang(newLang);
-                sessionStorage.setItem("jolly_lang", newLang);
-              }}
-            >
-              <option value="en">English</option>
-              <option value="hi">हिन्दी (Hindi)</option>
-              <option value="hinglish">Hinglish</option>
-              <option value="mr">मराठी (Marathi)</option>
-              <option value="bn">বাংলা (Bengali)</option>
-              <option value="ta">தமிழ் (Tamil)</option>
-              <option value="te">తెలుగు (Telugu)</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <label className="hidden sm:flex items-center gap-1.5 text-xs text-stone-600">
-            <input
-              type="checkbox"
-              className="rounded text-sage-700"
-              checked={tts}
-              onChange={(e) => setTts(e.target.checked)}
-            />
-            <span>Speak replies</span>
-          </label>
-          <button
-            type="button"
-            onClick={() => setSaveModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-sand-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 shadow-xs hover:border-sand-400 hover:bg-sand-50 active:scale-95 transition"
-            title="Save responses or download transcript"
-          >
-            <span>💾</span>
-            <span className="hidden sm:inline">Save Chat</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setEndChatModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-xs hover:bg-rose-100 active:scale-95 transition"
-            title="End conversation safely"
-          >
-            <span>🛑</span>
-            <span>End Chat</span>
-          </button>
-          <EmergencyButton />
-        </div>
-      </header>
-
-      {/* Dynamic Conversational Mode Indicator */}
-      {conversationMode === "listening" && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs text-emerald-900 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-base">🎧</span>
-            <div>
-              <strong>Active Listening Mode:</strong> Holding space for you. No advice, no checklists. Speak freely.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setConversationMode("assessment")}
-            className="rounded bg-white px-2 py-0.5 text-xs text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-          >
-            Resume Assessment
-          </button>
-        </div>
-      )}
-
-      {conversationMode === "emotional_support" && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-sky-300 bg-sky-50 px-3.5 py-2 text-xs text-sky-900 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-base">💙</span>
-            <div>
-              <strong>Empathetic Support:</strong> We are here with you. You don't have to figure everything out at once.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(conversationMode === "crisis_support" || conversationMode === "human_escalation" || crisis || crisisLevel === "suicidal_ideation" || crisisLevel === "imminent_danger") && (
-        <div className="mt-4 rounded-2xl border-2 border-rose-500 bg-rose-50/95 p-4 shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="text-xl">🚨</span>
-            <p className="font-bold text-rose-900">Safety & Immediate Indian Helplines (24/7 Free)</p>
-          </div>
-          <p className="mt-1 text-sm text-rose-800">
-            Your safety comes first. Confidential, professional help is available right now:
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <a
-              href="tel:14416"
-              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
-            >
-              <span className="text-sm font-bold text-rose-900">📞 14416</span>
-              <span className="text-[10px] text-stone-600">Tele-MANAS (Mental Health)</span>
-            </a>
-            <a
-              href="tel:112"
-              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
-            >
-              <span className="text-sm font-bold text-rose-900">🚨 112</span>
-              <span className="text-[10px] text-stone-600">Emergency (Police / Med)</span>
-            </a>
-            <a
-              href="tel:14566"
-              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
-            >
-              <span className="text-sm font-bold text-rose-900">🛡️ 14566</span>
-              <span className="text-[10px] text-stone-600">NHAA (Atrocities Helpline)</span>
-            </a>
-            <a
-              href="tel:18005990019"
-              className="flex flex-col items-center justify-center rounded-xl bg-white border border-rose-200 p-2.5 text-center shadow-sm hover:bg-rose-100/70 active:scale-95 transition"
-            >
-              <span className="text-sm font-bold text-rose-900">💙 1800-599-0019</span>
-              <span className="text-[10px] text-stone-600">KIRAN (Psychosocial)</span>
-            </a>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-rose-200">
+    <div className="bg-bg-canvas min-h-screen flex flex-col antialiased text-text-primary">
+      {/* Top Header */}
+      <SanctuaryHeader
+        rightContent={
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
-              disabled={escalationLoading}
-              onClick={() => void connectWithCounselor()}
-              className="flex items-center gap-1.5 rounded-lg bg-rose-700 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-rose-800 active:scale-95 transition"
+              onClick={() => setSaveModalOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border-subtle bg-surface-crisp text-text-primary text-label-sm font-label-sm shadow-2xs hover:bg-surface-container transition-colors"
+              title="Save chat or download transcript"
             >
-              <span>🎥</span>
-              <span>{escalationLoading ? "Connecting..." : "Connect with Human Counselor (Video/Audio)"}</span>
+              <span className="material-symbols-outlined text-[16px] text-primary">save</span>
+              <span className="hidden sm:inline">Save</span>
             </button>
-            {videoRoomUrl && (
-              <a
-                href={videoRoomUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg border border-rose-400 bg-white px-3 py-2 text-xs font-medium text-rose-800 hover:bg-rose-50"
+            <button
+              type="button"
+              onClick={() => setEndChatModalOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-safety-emergency/20 bg-safety-emergency-subtle text-safety-emergency text-label-sm font-label-sm shadow-2xs hover:bg-safety-emergency/15 transition-colors"
+              title="End conversation safely"
+            >
+              <span className="material-symbols-outlined text-[16px]">power_settings_new</span>
+              <span className="hidden sm:inline">End</span>
+            </button>
+          </div>
+        }
+      />
+
+      <main className="flex-1 flex flex-col relative w-full pt-16 pb-24 bg-bg-canvas">
+        <div className="flex flex-col w-full px-4 sm:px-6 max-w-2xl mx-auto space-y-4 pt-3">
+          {/* Sub-bar: Language Pill & Quick Exit */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="inline-flex p-0.5 rounded-full bg-surface-container border border-border-subtle items-center">
+              <select
+                value={lang}
+                onChange={(e) => {
+                  const newLang = e.target.value as Lang;
+                  setLang(newLang);
+                  sessionStorage.setItem("jolly_lang", newLang);
+                }}
+                className="bg-transparent px-3 py-1 text-label-sm font-label-sm text-primary font-medium focus:outline-none cursor-pointer"
               >
-                👉 Re-enter Consultation Room
-              </a>
+                {LANGUAGES.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="hidden sm:flex items-center gap-1.5 text-label-sm font-label-sm text-text-secondary cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded border-border-subtle text-primary focus:ring-primary"
+                  checked={tts}
+                  onChange={(e) => setTts(e.target.checked)}
+                />
+                <span>Speak replies</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleQuickExit}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-surface-crisp text-text-secondary hover:text-safety-emergency hover:bg-safety-emergency-subtle border border-border-subtle shadow-2xs transition-colors"
+                title="Immediately leave and redirect to Google"
+              >
+                <span className="material-symbols-outlined text-[15px]">logout</span>
+                <span className="font-label-sm text-label-sm">Quick Exit</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Ambient Safety & Confidentiality Card */}
+          <div className="bg-surface-crisp rounded-2xl p-4 border border-border-subtle shadow-xs flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-full bg-secondary-container text-secondary flex items-center justify-center shrink-0 mt-0.5">
+                <span className="material-symbols-outlined text-[20px]">nature_people</span>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-headline-sm text-headline-sm text-text-primary">Quiet Space</h2>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-secondary font-label-sm text-label-sm border border-border-subtle">
+                    <span className="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                    Confidential
+                  </span>
+                </div>
+                <p className="font-body-sm text-body-sm text-text-secondary mt-0.5 leading-snug">
+                  Responses are encrypted. Take gentle pauses whenever you need.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowGrounding(!showGrounding)}
+              className="shrink-0 flex flex-col items-center justify-center px-3 py-1.5 rounded-xl bg-surface-container hover:bg-surface-container-high text-primary-container border border-border-subtle transition-colors shadow-2xs"
+              title="Open grounding breathing tool"
+            >
+              <span className="material-symbols-outlined text-[20px] animate-pulse text-primary">air</span>
+              <span className="font-label-sm text-label-sm font-medium mt-0.5">Breathe</span>
+            </button>
+          </div>
+
+          {/* Interactive Breathing Overlay Box */}
+          {showGrounding && (
+            <div className="bg-surface-container rounded-2xl p-5 border border-border-subtle shadow-xs flex flex-col items-center text-center animate-fade-in">
+              <div className="w-16 h-16 rounded-full bg-primary-container/10 flex items-center justify-center relative mb-3">
+                <div className="w-12 h-12 rounded-full bg-primary-container/20 animate-ping absolute"></div>
+                <span className="material-symbols-outlined text-primary-container text-[28px]">self_improvement</span>
+              </div>
+              <h3 className="font-headline-md text-headline-md text-text-primary">Inhale peace, exhale tension</h3>
+              <p className="font-body-sm text-body-sm text-text-secondary mt-1 max-w-xs leading-relaxed">
+                Follow the soft rhythm. Inhale for 4 seconds, hold gently for 2, let go for 4.
+              </p>
+              <button
+                onClick={() => setShowGrounding(false)}
+                className="mt-4 px-4 py-1.5 rounded-full bg-surface-crisp text-primary-container font-label-sm text-label-sm shadow-2xs border border-border-subtle hover:bg-bg-subtle transition-colors"
+                type="button"
+              >
+                Return to conversation
+              </button>
+            </div>
+          )}
+
+          {/* Active Listening Mode Badge */}
+          {conversationMode === "listening" && (
+            <div className="flex items-center justify-between rounded-2xl border border-secondary-container bg-surface-container-low px-4 py-2.5 text-body-sm text-primary shadow-2xs">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[20px] text-primary">hearing</span>
+                <div>
+                  <strong className="font-semibold">Active Listening:</strong> Holding space for you. No advice, no checklists. Speak freely.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConversationMode("assessment")}
+                className="rounded-lg bg-surface-crisp px-2.5 py-1 text-label-sm text-primary border border-border-subtle hover:bg-bg-subtle"
+              >
+                Resume Assessment
+              </button>
+            </div>
+          )}
+
+          {/* Crisis Banner */}
+          {(conversationMode === "crisis_support" ||
+            conversationMode === "human_escalation" ||
+            crisis ||
+            crisisLevel === "suicidal_ideation" ||
+            crisisLevel === "imminent_danger") && (
+            <div className="rounded-2xl border border-safety-emergency/40 bg-safety-emergency-subtle p-4 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-safety-emergency text-[22px]">shield_with_heart</span>
+                <p className="font-headline-sm text-headline-sm text-safety-emergency font-semibold">
+                  Safety & Immediate Helplines (24/7 Free)
+                </p>
+              </div>
+              <p className="mt-1 font-body-sm text-body-sm text-text-primary">
+                Your safety comes first. Confidential, professional help is standing by right now:
+              </p>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <a
+                  href="tel:14416"
+                  className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
+                >
+                  <span className="font-label-md text-label-md font-bold text-safety-emergency">📞 14416</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">Tele-MANAS</span>
+                </a>
+                <a
+                  href="tel:112"
+                  className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
+                >
+                  <span className="font-label-md text-label-md font-bold text-safety-emergency">🚨 112</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">Emergency</span>
+                </a>
+                <a
+                  href="tel:14566"
+                  className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
+                >
+                  <span className="font-label-md text-label-md font-bold text-safety-emergency">🛡️ 14566</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">NHAA Helpline</span>
+                </a>
+                <a
+                  href="tel:18005990019"
+                  className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
+                >
+                  <span className="font-label-md text-label-md font-bold text-safety-emergency">💙 1800-599-0019</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">KIRAN</span>
+                </a>
+              </div>
+
+              <div className="mt-3.5 flex flex-wrap items-center gap-2 pt-2 border-t border-border-subtle">
+                <button
+                  type="button"
+                  disabled={escalationLoading}
+                  onClick={() => void connectWithCounselor()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-safety-emergency px-4 py-2 text-label-md font-label-md font-semibold text-white shadow-xs hover:opacity-90 active:scale-95 transition"
+                >
+                  <span className="material-symbols-outlined text-[18px]">video_camera_front</span>
+                  <span>{escalationLoading ? "Connecting..." : "Connect with Human Counselor"}</span>
+                </button>
+                {videoRoomUrl && (
+                  <a
+                    href={videoRoomUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-xl border border-border-subtle bg-surface-crisp px-3 py-2 text-label-sm font-label-sm text-primary font-medium hover:bg-surface-container"
+                  >
+                    👉 Re-enter Consultation Room
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-safety-emergency/30 bg-safety-emergency-subtle p-3 text-body-sm text-safety-emergency flex items-start gap-2">
+              <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Floating Camera Vision HUD */}
+          {cameraOn && (
+            <div className="overflow-hidden rounded-2xl border border-border-subtle bg-text-primary p-3.5 text-white shadow-md">
+              <div className="flex items-center justify-between pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-secondary-container opacity-75"></span>
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-secondary"></span>
+                  </span>
+                  <span className="font-label-sm text-label-sm font-semibold tracking-wider text-secondary-container uppercase">
+                    Live Video & Camera Connected
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void flipCamera()}
+                    className="rounded-lg bg-surface-crisp/10 px-2.5 py-1 text-label-sm font-label-sm text-white hover:bg-surface-crisp/20 active:scale-95"
+                    title="Flip camera"
+                  >
+                    🔄 Flip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="rounded-lg bg-surface-crisp/10 px-2.5 py-1 text-label-sm font-label-sm text-safety-emergency hover:bg-safety-emergency/20"
+                    title="Close camera"
+                  >
+                    ✖ Close
+                  </button>
+                </div>
+              </div>
+              <div className="relative aspect-video max-h-56 w-full overflow-hidden rounded-xl bg-black">
+                <video
+                  ref={videoRef}
+                  playsInline
+                  autoPlay
+                  muted
+                  className="h-full w-full object-cover"
+                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+                />
+                <div className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white backdrop-blur-xs">
+                  AI Vision Active
+                </div>
+              </div>
+            </div>
+          )}
+          <canvas ref={canvasRef} className="hidden" />
+
+          {/* Chat Stream Canvas */}
+          <div className="flex flex-col space-y-4 pb-2" id="chat-stream">
+            <div className="flex items-center justify-center py-1">
+              <span className="px-3 py-1 rounded-full bg-surface-container font-label-sm text-label-sm text-text-secondary border border-border-subtle">
+                Today • Sanctuary Mode
+              </span>
+            </div>
+
+            {messages.map((m, i) =>
+              m.role === "assistant" ? (
+                <div key={i} className="flex items-end gap-2.5 max-w-[92%] sm:max-w-[85%] self-start group">
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary shrink-0 mb-1 shadow-2xs">
+                    <span className="material-symbols-outlined text-[16px]">spa</span>
+                  </div>
+                  <div className="flex flex-col space-y-1">
+                    <div className="bg-surface-container rounded-2xl rounded-bl-xs p-4 shadow-2xs border border-border-subtle text-text-primary">
+                      <p className="font-body-md text-body-md leading-relaxed whitespace-pre-line">{m.text}</p>
+                      <div className="mt-2.5 flex items-center justify-between pt-1.5 border-t border-border-subtle/80 text-[11px] text-text-secondary">
+                        <span className="font-label-sm text-label-sm text-text-secondary">
+                          Jolly AI {m.time ? `• ${m.time}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void copyMessage(m.text, i)}
+                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-label-sm text-label-sm text-primary bg-surface-crisp/80 border border-border-subtle hover:bg-surface-crisp shadow-2xs transition"
+                          title="Copy response"
+                        >
+                          <span className="material-symbols-outlined text-[13px]">
+                            {copiedIndex === i ? "check" : "content_copy"}
+                          </span>
+                          <span>{copiedIndex === i ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div key={i} className="flex items-end gap-2 max-w-[88%] sm:max-w-[80%] self-end">
+                  <div className="flex flex-col space-y-1 items-end">
+                    <div className="bg-secondary-container rounded-2xl rounded-br-xs p-4 shadow-2xs border border-border-subtle text-on-secondary-container">
+                      <p className="font-body-md text-body-md leading-relaxed whitespace-pre-line">{m.text}</p>
+                    </div>
+                    <div className="flex items-center gap-1 pr-1.5 text-text-secondary font-label-sm text-label-sm">
+                      <span>{m.time || "Sent"}</span>
+                      <span className="material-symbols-outlined text-primary text-[14px]">done_all</span>
+                    </div>
+                  </div>
+                </div>
+              )
             )}
-            <p className="text-[11px] text-stone-600 italic">
-              Zero AI surveillance: Counselor video calls are 100% confidential. AI does not listen or record.
+
+            {busy && (
+              <div className="flex items-center gap-2 pl-3 py-1">
+                <div className="flex space-x-1 items-center">
+                  <span className="w-2 h-2 rounded-full bg-primary-container/80 animate-ping"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-container/60"></span>
+                  <span className="w-1 h-1 rounded-full bg-primary-container/40"></span>
+                </div>
+                <span className="font-label-sm text-label-sm text-text-secondary italic">
+                  Taking a moment to listen...
+                </span>
+              </div>
+            )}
+
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Quick Supportive Prompt Chips */}
+          <div className="flex flex-col space-y-2 pt-1">
+            <div className="flex items-center justify-between px-1">
+              <span className="font-label-sm text-label-sm text-text-secondary uppercase tracking-wider">
+                Helpful prompts
+              </span>
+              <span className="font-label-sm text-label-sm text-primary-container">Tap to send</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void send("I'm feeling overwhelmed right now")}
+                className="px-3.5 py-1.5 rounded-full bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container text-text-primary font-body-sm text-body-sm transition-all active:scale-95 text-left"
+              >
+                I&apos;m feeling overwhelmed
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void send("I don't know where to start")}
+                className="px-3.5 py-1.5 rounded-full bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container text-text-primary font-body-sm text-body-sm transition-all active:scale-95 text-left"
+              >
+                I don&apos;t know where to start
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void send("Stop giving me solutions. I just want someone to listen.")}
+                className="px-3.5 py-1.5 rounded-full bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container text-text-primary font-body-sm text-body-sm transition-all active:scale-95 text-left"
+              >
+                🎧 Just listen (no advice)
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void send("Can you just stay here and talk to me for a while?")}
+                className="px-3.5 py-1.5 rounded-full bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container text-text-primary font-body-sm text-body-sm transition-all active:scale-95 text-left"
+              >
+                💙 Stay &amp; talk with me
+              </button>
+            </div>
+          </div>
+
+          {/* Floating Composer Bar */}
+          <div className="sticky bottom-20 z-30 bg-surface-crisp rounded-2xl shadow-whisper border border-border-subtle p-2 flex items-center gap-2">
+            {/* Microphone Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setVoiceSanctuaryOpen(true);
+                startBrowserStt();
+              }}
+              disabled={busy}
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                isRecording
+                  ? "bg-safety-emergency text-white animate-pulse"
+                  : "bg-surface-container text-primary-container hover:bg-surface-container-high"
+              }`}
+              title="Open Voice Sanctuary"
+            >
+              <span className="material-symbols-outlined text-[22px]">mic</span>
+            </button>
+
+            {/* Camera Toggle Button */}
+            <button
+              type="button"
+              onClick={cameraOn ? stopCamera : () => void startCamera()}
+              disabled={cameraLoading || busy}
+              className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                cameraOn
+                  ? "bg-secondary-container text-primary font-bold"
+                  : "bg-surface-container text-primary-container hover:bg-surface-container-high"
+              }`}
+              title="Toggle Camera for Face-to-Face Interaction"
+            >
+              <span className="material-symbols-outlined text-[20px]">
+                {cameraOn ? "videocam" : "videocam_off"}
+              </span>
+            </button>
+
+            {/* Text Input */}
+            <input
+              className="flex-1 bg-transparent px-3 py-2 text-text-primary placeholder:text-text-secondary/60 font-body-md text-body-md focus:outline-none"
+              placeholder="Write what's on your mind..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(input);
+                }
+              }}
+              disabled={busy}
+            />
+
+            {/* Send Button */}
+            <button
+              type="button"
+              onClick={() => void send(input)}
+              disabled={busy || !input.trim()}
+              className="w-11 h-11 rounded-xl bg-primary-container text-on-primary hover:bg-primary flex items-center justify-center shrink-0 transition-all active:scale-95 shadow-2xs disabled:opacity-40"
+              title="Send message"
+            >
+              <span className="material-symbols-outlined text-[20px]">send</span>
+            </button>
+          </div>
+
+          <div className="text-center pb-2">
+            <p className="font-label-sm text-label-sm text-text-secondary">
+              NHAA Helpline 14566 is available 24/7. Your conversations are anonymous.
             </p>
           </div>
         </div>
-      )}
+      </main>
 
-      {error && (
-        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-stone-800">
-          {error}
-        </div>
-      )}
-
-      {/* Live Floating Camera HUD (Cross-platform: iOS / Android / Windows) */}
-      {cameraOn && (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-emerald-600/30 bg-stone-900 p-3 text-white shadow-xl">
-          <div className="flex items-center justify-between pb-2">
+      {/* Voice Sanctuary Fullscreen Overlay */}
+      {voiceSanctuaryOpen && (
+        <div className="fixed inset-0 z-50 bg-bg-canvas/98 backdrop-blur-md flex flex-col p-4 sm:p-6 animate-fade-in select-none">
+          {/* Top Bar */}
+          <div className="w-full flex items-center justify-between py-2 px-4 rounded-xl bg-surface-container border border-border-subtle max-w-lg mx-auto">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-container opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary"></span>
               </span>
-              <span className="text-xs font-semibold tracking-wider text-emerald-400 uppercase">
-                Live Video & Camera Connected
+              <span className="font-headline-sm text-headline-sm text-primary">Voice Sanctuary</span>
+              <span className="px-2 py-0.5 rounded-full bg-surface-crisp text-secondary font-label-sm text-label-sm border border-border-subtle">
+                Encrypted
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void flipCamera()}
-                className="rounded-lg bg-stone-800 px-2.5 py-1 text-xs text-stone-200 hover:bg-stone-700 active:scale-95"
-                title="Switch Front / Rear Camera"
-              >
-                🔄 Flip Camera
-              </button>
-              <button
-                type="button"
-                onClick={stopCamera}
-                className="rounded-lg bg-stone-800 px-2.5 py-1 text-xs text-stone-400 hover:bg-red-900/50 hover:text-red-300"
-                title="Turn Off Camera"
-              >
-                ✖ Close
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                stopBrowserStt();
+                setVoiceSanctuaryOpen(false);
+              }}
+              className="inline-flex items-center gap-1 text-text-secondary hover:text-text-primary px-2.5 py-1 rounded-lg bg-surface-crisp border border-border-subtle text-label-sm font-label-sm"
+            >
+              <span className="material-symbols-outlined text-[16px]">chat</span>
+              <span>Switch to text</span>
+            </button>
           </div>
-          <div className="relative aspect-video max-h-60 w-full overflow-hidden rounded-xl bg-black">
-            <video
-              ref={videoRef}
-              playsInline
-              autoPlay
-              muted
-              className="h-full w-full object-cover"
-              style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
-            />
-            <div className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white backdrop-blur-sm">
-              AI Vision & Video Active
-            </div>
-          </div>
-          <p className="mt-2 text-center text-xs text-stone-400">
-            Jolly AI can see and talk with you face-to-face. Speak or type your message below.
-          </p>
-        </div>
-      )}
-      <canvas ref={canvasRef} className="hidden" />
 
-      {/* Message Flow */}
-      <div className="mt-4 flex-1 space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-sm">
-        {messages.map((m, i) =>
-          m.role === "user" ? (
-            <div
-              key={i}
-              className="ml-8 whitespace-pre-line rounded-2xl bg-sage-700 px-4 py-3 leading-relaxed text-white shadow-sm"
-            >
-              {m.text}
-            </div>
-          ) : (
-            <div
-              key={i}
-              className="mr-8 whitespace-pre-line rounded-2xl bg-sand-100 px-4 py-3 leading-relaxed text-stone-800 shadow-sm"
-            >
-              <div>{m.text}</div>
-              <div className="mt-2 flex items-center justify-between border-t border-sand-200/80 pt-1.5 text-[11px] text-stone-500">
-                <span className="font-medium text-stone-400">Jolly AI Support</span>
-                <button
-                  type="button"
-                  onClick={() => void copyMessage(m.text, i)}
-                  className="flex items-center gap-1 rounded border border-sand-200 bg-white/80 px-2 py-0.5 text-[11px] font-medium text-stone-600 shadow-2xs hover:bg-white hover:text-stone-900 active:scale-95 transition"
-                  title="Copy this AI response"
-                >
-                  <span>{copiedIndex === i ? "✓" : "📋"}</span>
-                  <span>{copiedIndex === i ? "Copied" : "Copy response"}</span>
-                </button>
+          {/* Concentric Breathing Sphere Orb */}
+          <div className="flex-1 flex flex-col items-center justify-center py-6 max-w-lg mx-auto w-full">
+            <div className="relative flex items-center justify-center w-64 h-64 my-auto">
+              {/* Outermost soft aura layer */}
+              <div
+                className="absolute w-60 h-60 rounded-full bg-surface-container-high/60 transition-transform duration-1000 ease-in-out"
+                style={{
+                  transform: isRecording && !voicePaused ? `scale(${1 + audioLevel / 150})` : "scale(0.95)",
+                }}
+              />
+              {/* Intermediate soothing sage ripple */}
+              <div
+                className="absolute w-48 h-48 rounded-full bg-secondary-container/50 transition-transform duration-700 ease-out"
+                style={{
+                  transform: isRecording && !voicePaused ? `scale(${0.9 + audioLevel / 180})` : "scale(0.9)",
+                }}
+              />
+              {/* Central Organic Breathing Sphere */}
+              <div className="relative w-36 h-36 rounded-full bg-gradient-to-tr from-primary-container via-surface-tint to-secondary flex flex-col items-center justify-center shadow-xl shadow-primary/10">
+                <span className="material-symbols-outlined text-on-primary text-[38px]">
+                  {voicePaused ? "pause" : isRecording ? "graphic_eq" : "mic"}
+                </span>
+                <span className="font-label-sm text-label-sm text-primary-fixed mt-1 tracking-wider uppercase">
+                  {voicePaused ? "Paused" : isRecording ? "Listening" : "Ready"}
+                </span>
               </div>
             </div>
-          )
-        )}
-      </div>
 
-      {/* Quick Suggestion Chips */}
-      {phase === "safety" && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {quickSafetyChips.map((chip) => (
-            <button
-              key={chip.label}
-              type="button"
-              className="rounded-full border border-sand-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm hover:border-sage-500 hover:bg-sage-50"
-              onClick={() => void send(chip.text)}
-              disabled={busy}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {phase === "need" && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {quickNeedChips.map((chip) => (
-            <button
-              key={chip.label}
-              type="button"
-              className="rounded-full border border-sand-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm hover:border-sage-500 hover:bg-sage-50"
-              onClick={() => void send(chip.text)}
-              disabled={busy}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Voice Recording Visualizer Indicator */}
-      {isRecording && (
-        <div className="mt-3 flex items-center justify-between rounded-xl border border-sage-300 bg-sage-50 p-3">
-          <div className="flex items-center gap-3">
-            <span className="relative flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-clay-400 opacity-75"></span>
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-clay-500"></span>
-            </span>
-            <div>
-              <p className="text-xs font-medium text-sage-900">{loc.voiceRecording}</p>
-              <div className="mt-1 h-1.5 w-32 overflow-hidden rounded-full bg-sand-200">
-                <div
-                  className="h-full bg-sage-600 transition-all duration-75"
-                  style={{ width: `${Math.max(10, audioLevel)}%` }}
-                ></div>
-              </div>
+            {/* Status Title */}
+            <div className="text-center mt-4">
+              <h2 className="font-headline-lg-mobile text-headline-lg-mobile text-text-primary">
+                {voicePaused ? "Quiet pause" : isRecording ? "Listening gently" : "Ready to listen"}
+              </h2>
+              <p className="font-body-md text-body-md text-text-secondary mt-1 max-w-xs mx-auto">
+                Take all the time you need. Speak whenever you feel ready.
+              </p>
             </div>
+
+            {/* Audio Waveform Sparklines */}
+            <div className="flex items-center gap-1.5 mt-4 h-8 px-4 py-1.5 rounded-full bg-surface-container shadow-xs border border-border-subtle">
+              <span className="w-1 bg-primary-container rounded-full animate-bounce h-3"></span>
+              <span className="w-1 bg-primary rounded-full animate-bounce h-5" style={{ animationDelay: "0.2s" }}></span>
+              <span className="w-1 bg-surface-tint rounded-full animate-bounce h-6" style={{ animationDelay: "0.1s" }}></span>
+              <span className="w-1 bg-secondary rounded-full animate-bounce h-4" style={{ animationDelay: "0.3s" }}></span>
+              <span className="w-1 bg-primary rounded-full animate-bounce h-5" style={{ animationDelay: "0.15s" }}></span>
+              <span className="font-label-sm text-label-sm text-primary ml-2 font-medium">Safe voice space</span>
+            </div>
+
+            {/* Live Transcript Preview */}
+            {transcriptDraft && (
+              <div className="w-full mt-4 bg-surface-crisp p-4 rounded-xl border border-border-subtle shadow-xs">
+                <span className="font-label-sm text-label-sm text-text-secondary block mb-1">Transcribing softly:</span>
+                <p className="font-body-md text-body-md text-text-primary italic">&quot;{transcriptDraft}&quot;</p>
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            className="rounded-lg bg-sage-700 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-sage-600"
-            onClick={stopBrowserStt}
-          >
-            {loc.stopRecording}
-          </button>
+
+          {/* Bottom Voice Controls */}
+          <div className="w-full max-w-lg mx-auto flex flex-col gap-3 pb-4">
+            <div className="grid grid-cols-3 gap-2.5 items-center">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isRecording) {
+                    stopBrowserStt();
+                  } else {
+                    startBrowserStt();
+                  }
+                }}
+                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-[24px] text-primary">
+                  {isRecording ? "mic_off" : "mic"}
+                </span>
+                <span className="font-label-sm text-label-sm mt-1">{isRecording ? "Stop mic" : "Start mic"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setVoicePaused(!voicePaused)}
+                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-[24px] text-secondary">
+                  {voicePaused ? "play_arrow" : "pause"}
+                </span>
+                <span className="font-label-sm text-label-sm mt-1">{voicePaused ? "Resume" : "Quiet pause"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  stopBrowserStt();
+                  setVoiceSanctuaryOpen(false);
+                }}
+                className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-crisp border border-border-subtle shadow-2xs hover:bg-surface-container transition-colors"
+              >
+                <span className="material-symbols-outlined text-[24px] text-primary">keyboard</span>
+                <span className="font-label-sm text-label-sm mt-1">Type instead</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (transcriptDraft.trim()) {
+                  submitTranscript();
+                }
+                stopBrowserStt();
+                setVoiceSanctuaryOpen(false);
+              }}
+              className="w-full py-3 px-4 rounded-xl bg-primary-container text-on-primary font-label-md text-label-md flex items-center justify-center gap-2 hover:bg-primary transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">check</span>
+              <span>{transcriptDraft.trim() ? "Submit Spoken Message" : "Close Voice Room"}</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Supportive Intent Quick Chips */}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-stone-600">
-        <span className="text-[11px] font-medium text-stone-400">Quick needs:</span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void send("Stop giving me solutions. I just want someone to listen.")}
-          className="rounded-full border border-sand-300 bg-white px-2.5 py-1 text-xs text-stone-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800 transition"
-        >
-          🎧 Just listen (no advice)
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void send("Can you just stay here and talk to me for a while?")}
-          className="rounded-full border border-sand-300 bg-white px-2.5 py-1 text-xs text-stone-700 shadow-sm hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800 transition"
-        >
-          💙 Stay & talk with me
-        </button>
-        <button
-          type="button"
-          disabled={busy || escalationLoading}
-          onClick={() => void connectWithCounselor()}
-          className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-800 shadow-sm hover:bg-rose-100 transition"
-        >
-          🎥 Counselor Video
-        </button>
-      </div>
-
-      {/* Input Form */}
-      <form
-        className="mt-2 flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(input);
-        }}
-      >
-        <input
-          className="flex-1 rounded-full border border-sand-300 px-4 py-3 text-stone-800 shadow-sm focus:border-sage-600 focus:outline-none focus:ring-1 focus:ring-sage-600"
-          placeholder="Share only what you want to..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={busy}
-        />
-        <button
-          className="rounded-full bg-sage-700 px-5 py-3 font-medium text-white shadow hover:bg-sage-600 disabled:opacity-50 active:scale-95"
-          disabled={busy || !input.trim()}
-        >
-          Send
-        </button>
-        <button
-          type="button"
-          onClick={cameraOn ? stopCamera : () => void startCamera()}
-          disabled={cameraLoading || busy}
-          className={`flex items-center gap-1.5 rounded-full border px-4 py-3 text-sm font-medium shadow-sm transition active:scale-95 ${
-            cameraOn
-              ? "border-emerald-500 bg-emerald-50 text-emerald-700 font-semibold"
-              : "border-sand-300 bg-white text-stone-700 hover:bg-sand-50"
-          }`}
-          title="Toggle Camera for Video Interaction (iOS / Android / Windows)"
-        >
-          <span>{cameraOn ? "🟢" : "📷"}</span>
-          <span className="hidden sm:inline">{cameraLoading ? "Opening..." : cameraOn ? "Camera On" : "Camera"}</span>
-        </button>
-        <button
-          type="button"
-          className={`flex items-center gap-1.5 rounded-full border px-4 py-3 text-sm font-medium shadow-sm transition active:scale-95 ${
-            isRecording
-              ? "border-clay-500 bg-clay-50 text-clay-700 font-semibold"
-              : "border-sand-300 bg-white text-stone-700 hover:bg-sand-50"
-          }`}
-          onClick={isRecording ? stopBrowserStt : startBrowserStt}
-          disabled={busy}
-          title="Voice Conversation"
-        >
-          <span>🎙️</span>
-          <span className="hidden sm:inline">{isRecording ? "Stop" : "Voice"}</span>
-        </button>
-      </form>
-
-      <p className="mt-2 text-xs text-stone-500">
-        Voice analysis is optional. Silence, accent, disability, connection, or language choice never reduce your access to support.
-      </p>
-
-      <div className="mt-3 flex items-center justify-between text-xs text-stone-600">
-        <div className="flex gap-4">
-          <Link href="/results" className="underline hover:text-stone-900">
-            View support suggestion
-          </Link>
-          <Link href="/privacy" className="underline hover:text-stone-900">
-            Privacy & deletion
-          </Link>
-        </div>
-        <Link href="/summary" className="underline hover:text-stone-900">
-          Review summary
-        </Link>
-      </div>
-
-      {/* Transcript Correction Modal */}
+      {/* Transcript Review Modal */}
       {showTranscript && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-stone-800">{loc.correctTranscript}</h2>
-            <p className="mt-1 text-xs text-stone-500">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-surface-crisp p-6 shadow-xl border border-border-subtle">
+            <h2 className="font-headline-sm text-headline-sm text-text-primary">{loc.correctTranscript}</h2>
+            <p className="mt-1 font-body-sm text-body-sm text-text-secondary">
               You can edit any words that speech recognition misheard before submitting for supportive response.
             </p>
             <textarea
-              className="mt-3 h-32 w-full rounded-xl border border-sand-300 p-3 text-sm text-stone-800 focus:border-sage-600 focus:outline-none"
+              className="mt-3.5 h-32 w-full rounded-xl border border-border-subtle bg-bg-canvas p-3 font-body-md text-body-md text-text-primary focus:border-primary focus:outline-none"
               value={transcriptDraft}
               onChange={(e) => setTranscriptDraft(e.target.value)}
             />
-            <div className="mt-2 text-xs text-stone-400">
-              Words: {transcriptDraft.trim().split(/\s+/).filter(Boolean).length}
-            </div>
             <div className="mt-4 flex gap-2">
               <button
-                className="rounded-lg bg-sage-700 px-4 py-2 text-sm font-medium text-white shadow hover:bg-sage-600"
+                className="rounded-xl bg-primary-container px-4 py-2 text-label-md font-label-md font-medium text-white shadow-2xs hover:bg-primary"
                 onClick={submitTranscript}
               >
                 {loc.useThisText}
               </button>
               <button
-                className="rounded-lg border border-sand-300 px-4 py-2 text-sm text-stone-700 hover:bg-sand-50"
+                className="rounded-xl border border-border-subtle px-4 py-2 text-label-md font-label-md text-text-secondary hover:bg-bg-subtle"
                 onClick={() => setShowTranscript(false)}
               >
                 {loc.discard}
@@ -926,75 +1132,71 @@ export default function ChatPage() {
         </div>
       )}
 
-      {shareDest && sessionId && (
-        <ShareConfirmModal sessionId={sessionId} destination={shareDest} onClose={() => setShareDest(null)} />
-      )}
-
       {/* Save Responses & Transcript Modal */}
       {saveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-sand-200 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-surface-crisp p-6 shadow-xl border border-border-subtle">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
               <div className="flex items-center gap-2">
-                <span className="text-xl">💾</span>
-                <h2 className="text-lg font-bold text-stone-800">Save Your Responses</h2>
+                <span className="material-symbols-outlined text-primary text-[22px]">save</span>
+                <h2 className="font-headline-sm text-headline-sm text-text-primary font-semibold">Save Your Responses</h2>
               </div>
               <button
                 type="button"
                 onClick={() => setSaveModalOpen(false)}
-                className="rounded-lg p-1 text-stone-400 hover:bg-sand-100 hover:text-stone-600"
+                className="w-7 h-7 rounded-full bg-surface-container flex items-center justify-center text-text-secondary hover:text-text-primary"
               >
-                ✕
+                <span className="material-symbols-outlined text-[16px]">close</span>
               </button>
             </div>
-            <p className="mt-3 text-xs text-stone-600 leading-relaxed">
-              You can save, copy, or download your conversation and advice for your records, for legal support, or to share with a counselor.
+            <p className="mt-3 font-body-sm text-body-sm text-text-secondary leading-relaxed">
+              Save or download your conversation for your personal records, for legal support, or to review with a counselor.
             </p>
 
             <div className="mt-4 space-y-2.5">
               <button
                 type="button"
                 onClick={downloadTranscript}
-                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+                className="flex w-full items-center justify-between rounded-xl border border-border-subtle bg-bg-subtle/70 p-3.5 text-left font-label-md text-label-md font-semibold text-text-primary hover:bg-bg-subtle transition"
               >
                 <div className="flex items-center gap-3">
-                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📄</span>
+                  <span className="material-symbols-outlined text-[22px] text-primary">description</span>
                   <div>
-                    <div className="font-bold text-stone-800">Download Transcript (.txt)</div>
-                    <div className="font-normal text-stone-500">Save full text file with timestamps and helpline numbers</div>
+                    <div className="font-semibold text-text-primary">Download Transcript (.txt)</div>
+                    <div className="font-normal text-text-secondary text-xs">Dated record with timestamps and helplines</div>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-sage-700">Download ↓</span>
+                <span className="text-primary text-xs font-bold">Download ↓</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => void copyAllMessages()}
-                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+                className="flex w-full items-center justify-between rounded-xl border border-border-subtle bg-bg-subtle/70 p-3.5 text-left font-label-md text-label-md font-semibold text-text-primary hover:bg-bg-subtle transition"
               >
                 <div className="flex items-center gap-3">
-                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📋</span>
+                  <span className="material-symbols-outlined text-[22px] text-primary">content_copy</span>
                   <div>
-                    <div className="font-bold text-stone-800">Copy Entire Conversation</div>
-                    <div className="font-normal text-stone-500">Copy all questions and answers to clipboard</div>
+                    <div className="font-semibold text-text-primary">Copy Entire Conversation</div>
+                    <div className="font-normal text-text-secondary text-xs">Copy full dialogue to clipboard</div>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-sage-700">Copy 📋</span>
+                <span className="text-primary text-xs font-bold">Copy 📋</span>
               </button>
 
               <button
                 type="button"
                 onClick={saveToSessionSummary}
-                className="flex w-full items-center justify-between rounded-xl border border-sand-300 bg-sand-50/70 p-3.5 text-left text-xs font-semibold text-stone-800 shadow-2xs hover:border-sage-400 hover:bg-sage-50 transition"
+                className="flex w-full items-center justify-between rounded-xl border border-border-subtle bg-bg-subtle/70 p-3.5 text-left font-label-md text-label-md font-semibold text-text-primary hover:bg-bg-subtle transition"
               >
                 <div className="flex items-center gap-3">
-                  <span className="rounded-lg bg-white p-2 text-base shadow-xs">📝</span>
+                  <span className="material-symbols-outlined text-[22px] text-primary">assignment</span>
                   <div>
-                    <div className="font-bold text-stone-800">Save to My Summary</div>
-                    <div className="font-normal text-stone-500">Stores responses for review in your Summary page</div>
+                    <div className="font-semibold text-text-primary">Save to My Summary</div>
+                    <div className="font-normal text-text-secondary text-xs">Stores responses for review at /summary</div>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-sage-700">Save 💾</span>
+                <span className="text-primary text-xs font-bold">Save 💾</span>
               </button>
             </div>
 
@@ -1002,7 +1204,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => setSaveModalOpen(false)}
-                className="rounded-lg border border-sand-300 px-4 py-2 text-xs font-medium text-stone-700 hover:bg-sand-50"
+                className="rounded-xl border border-border-subtle px-4 py-2 font-label-md text-label-md text-text-secondary hover:bg-bg-subtle"
               >
                 Close
               </button>
@@ -1013,13 +1215,13 @@ export default function ChatPage() {
 
       {/* End Chat Confirmation Modal */}
       {endChatModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-center gap-2 border-b border-sand-200 pb-3">
-              <span className="text-2xl">🛑</span>
-              <h2 className="text-lg font-bold text-stone-800">End Conversation</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-surface-crisp p-6 shadow-xl border border-border-subtle">
+            <div className="flex items-center gap-2 border-b border-border-subtle pb-3">
+              <span className="material-symbols-outlined text-safety-emergency text-[24px]">power_settings_new</span>
+              <h2 className="font-headline-sm text-headline-sm text-text-primary font-semibold">End Conversation</h2>
             </div>
-            <p className="mt-3 text-xs text-stone-600 leading-relaxed">
+            <p className="mt-3 font-body-sm text-body-sm text-text-secondary leading-relaxed">
               You are in control. You can end this conversation at any moment. Would you like to save your responses before ending, or exit quickly for privacy?
             </p>
 
@@ -1027,46 +1229,45 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={handleEndChatAndReview}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-sage-700 p-3 text-center text-xs font-semibold text-white shadow hover:bg-sage-600 active:scale-95 transition"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-container p-3 text-center font-label-md text-label-md font-semibold text-white shadow-xs hover:bg-primary active:scale-95 transition"
               >
-                <span>💾</span>
-                <span>Save Responses & Review Summary</span>
+                <span className="material-symbols-outlined text-[18px]">save</span>
+                <span>Save Responses &amp; Review Summary</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleQuickExit}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-center text-xs font-semibold text-rose-700 shadow-2xs hover:bg-rose-100 active:scale-95 transition"
-                title="Immediately purges browser session and exits to Google"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-safety-emergency/30 bg-safety-emergency-subtle p-3 text-center font-label-md text-label-md font-semibold text-safety-emergency hover:bg-safety-emergency/15 active:scale-95 transition"
               >
-                <span>⚡</span>
+                <span className="material-symbols-outlined text-[18px]">bolt</span>
                 <span>Quick Privacy Exit (Clear History)</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setEndChatModalOpen(false)}
-                className="w-full rounded-xl border border-sand-300 p-2.5 text-center text-xs font-medium text-stone-600 hover:bg-sand-50 active:scale-95 transition"
+                className="w-full rounded-xl border border-border-subtle p-2.5 text-center font-label-md text-label-md font-medium text-text-secondary hover:bg-bg-subtle transition"
               >
                 Continue Chatting
               </button>
             </div>
-
-            <p className="mt-4 text-center text-[11px] text-stone-400">
-              Need immediate emergency help? Call <strong>112</strong> (Emergency) or <strong>14416</strong> (Tele-MANAS) anytime.
-            </p>
           </div>
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Floating Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2.5 text-xs font-medium text-white shadow-lg">
-          <span>✓</span>
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-text-primary px-4 py-2.5 text-label-md font-label-md font-medium text-white shadow-lg animate-fade-in">
+          <span className="material-symbols-outlined text-[16px]">check_circle</span>
           <span>{toastMessage}</span>
         </div>
       )}
-    </main>
+
+      {shareDest && sessionId && (
+        <ShareConfirmModal sessionId={sessionId} destination={shareDest} onClose={() => setShareDest(null)} />
+      )}
+    </div>
   );
 }
 
@@ -1080,5 +1281,5 @@ interface SpeechRecognition extends EventTarget {
   onerror: (() => void) | null;
 }
 interface SpeechRecognitionEvent {
-  results: { [index: number]: { [index: number]: { transcript: string } } };
+  results: { [index: number]: { [index: number]: { transcript: string } }; length: number };
 }
