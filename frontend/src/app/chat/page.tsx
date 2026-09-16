@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { EmergencyButton } from "@/components/EmergencyButton";
 import { ShareConfirmModal } from "@/components/ShareConfirmModal";
@@ -782,8 +783,14 @@ export default function ChatPage() {
             {messages.map((m, i) =>
               m.role === "assistant" ? (
                 <div key={i} className="flex items-end gap-2.5 max-w-[92%] sm:max-w-[85%] self-start group">
-                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary shrink-0 mb-1 shadow-2xs">
-                    <span className="material-symbols-outlined text-[16px]">spa</span>
+                  <div className="w-8 h-8 rounded-full bg-surface-crisp border border-border-subtle flex items-center justify-center overflow-hidden shrink-0 mb-1 shadow-2xs p-0.5">
+                    <Image
+                      src="/logo.png"
+                      alt="Jolly AI Mascot"
+                      width={28}
+                      height={28}
+                      className="w-full h-full object-contain"
+                    />
                   </div>
                   <div className="flex flex-col space-y-1">
                     <div className="bg-surface-container rounded-2xl rounded-bl-xs p-4 shadow-2xs border border-border-subtle text-text-primary">

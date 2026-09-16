@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { SanctuaryHeader } from "@/components/SanctuaryHeader";
 import { SanctuaryNav } from "@/components/SanctuaryNav";
 
@@ -74,7 +75,18 @@ export default function LandingPage() {
             </span>
           </div>
 
-          {/* Main Calm Heading */}
+          {/* Main Calm Heading & Mascot */}
+          <div className="relative w-20 h-20 sm:w-24 sm:h-24 mb-3 transition-transform hover:scale-105 duration-300">
+            <Image
+              src="/logo.png"
+              alt="Jolly AI Mascot"
+              width={96}
+              height={96}
+              className="h-full w-auto object-contain drop-shadow-md mx-auto"
+              priority
+            />
+          </div>
+
           <h1 className="font-headline-lg-mobile sm:font-display-lg text-headline-lg-mobile sm:text-display-lg text-text-primary tracking-tight max-w-md mb-2 font-medium">
             A quiet place to be heard.
           </h1>
