@@ -32,7 +32,10 @@ AI-Based Real-Time Stress, Trauma & Emotional Support System for Victims / Compl
 
 Domain: Citizen Safety, Triage & Legal-Psychological First Contact
 Integration Target: NHAA (14566) & National Integrated Portal
-Team: [Team Name] | Institution: [Your Institution]
+Team Lead: Shivam
+Prototype & Development: Stuti, Shivam, Tanay
+Research & Domain Triage: Himanshu, Vishant
+Presentation & Documentation: Shashwat
 Problem Statement: SIH Software Edition 2024
 ```
 
