@@ -391,7 +391,10 @@ export default function SummaryPage() {
                           </span>
                           <span className="text-[11px] text-text-secondary block">
                             {(cameraFatigue || stressIndex.camera_fatigue)?.expression_emoji && `${(cameraFatigue || stressIndex.camera_fatigue)?.expression_emoji} `}
-                            {(cameraFatigue || stressIndex.camera_fatigue)?.expression_label || "Calm & Focused"} • Vitality: {(cameraFatigue || stressIndex.camera_fatigue)?.vitality_status || "Active"} • Blinks: {(cameraFatigue || stressIndex.camera_fatigue)?.blinks_per_min} bpm
+                            {(cameraFatigue || stressIndex.camera_fatigue)?.expression_label || "Calm & Focused"}
+                            {typeof (cameraFatigue || stressIndex.camera_fatigue)?.smile_score === "number" && ` • Smile: ${(cameraFatigue || stressIndex.camera_fatigue)?.smile_score}%`}
+                            {` • Vitality: ${(cameraFatigue || stressIndex.camera_fatigue)?.vitality_status || "Active"}`}
+                            {` • Blinks: ${(cameraFatigue || stressIndex.camera_fatigue)?.blinks_per_min} bpm`}
                           </span>
                           <span className="text-[10px] text-text-tertiary italic block">
                             {(cameraFatigue || stressIndex.camera_fatigue)?.status_message}

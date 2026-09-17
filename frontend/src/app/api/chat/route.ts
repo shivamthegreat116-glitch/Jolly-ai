@@ -29,6 +29,7 @@ interface ChatRequest {
     vitality_status?: string;
     mouth_state?: string;
     brow_tension?: string;
+    smile_score?: number;
   };
 }
 
@@ -80,6 +81,7 @@ function calculateStressIndex(
     vitality_status?: string;
     mouth_state?: string;
     brow_tension?: string;
+    smile_score?: number;
   }
 ) {
   const lower = (text + " " + (medicalNotes || "")).toLowerCase();
@@ -481,9 +483,9 @@ export async function POST(request: Request) {
           `Somatic Load: ${stressIndex.somatic_load}/100`,
           `Environmental & Safety Risk: ${stressIndex.environmental_risk}/100`,
           ...(cameraFatigue && cameraFatigue.expression && cameraFatigue.expression !== "neutral"
-            ? [`Active Facial Expression: ${cameraFatigue.expression_emoji || ""} ${cameraFatigue.expression_label || cameraFatigue.expression} (${cameraFatigue.vitality_status || "Active"})`]
+            ? [`Active Facial Expression: ${cameraFatigue.expression_emoji || ""} ${cameraFatigue.expression_label || cameraFatigue.expression}${typeof cameraFatigue.smile_score === "number" ? ` (Smile: ${cameraFatigue.smile_score}%)` : ""} • Vitality: ${cameraFatigue.vitality_status || "Active"}`]
             : []),
-          ...(cameraFatigue && cameraFatigue.score >= 40
+          ...(cameraFatigue && typeof cameraFatigue.score === "number"
             ? [`Camera Fatigue Telemetry: ${cameraFatigue.score}% (${cameraFatigue.level_label || cameraFatigue.level}) • ${cameraFatigue.status_message || ""}`]
             : []),
         ],

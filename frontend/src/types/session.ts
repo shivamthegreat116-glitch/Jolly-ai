@@ -85,6 +85,7 @@ export interface CameraFatigueData {
   mouth_state?: "resting" | "smiling" | "talking" | "yawning";
   brow_tension?: "relaxed" | "slight" | "furrowed";
   active_confidence?: number; // 0 to 100
+  smile_score?: number; // 0 to 100 (inverse fatigue driver)
 }
 
 export interface InteractionObject {

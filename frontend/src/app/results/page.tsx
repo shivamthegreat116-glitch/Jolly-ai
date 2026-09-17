@@ -1124,7 +1124,10 @@ export default function ResultsPage() {
                                 </span>
                                 <span className="text-[11px] text-text-secondary block">
                                   {assessment.stress_index.camera_fatigue.expression_emoji && `${assessment.stress_index.camera_fatigue.expression_emoji} `}
-                                  {assessment.stress_index.camera_fatigue.expression_label || "Calm Focus"} • Vitality: {assessment.stress_index.camera_fatigue.vitality_status || "Active"} • Blinks: {assessment.stress_index.camera_fatigue.blinks_per_min} bpm
+                                  {assessment.stress_index.camera_fatigue.expression_label || "Calm Focus"}
+                                  {typeof assessment.stress_index.camera_fatigue.smile_score === "number" && ` • Smile: ${assessment.stress_index.camera_fatigue.smile_score}%`}
+                                  {` • Vitality: ${assessment.stress_index.camera_fatigue.vitality_status || "Active"}`}
+                                  {` • Blinks: ${assessment.stress_index.camera_fatigue.blinks_per_min} bpm`}
                                 </span>
                                 <span className="text-[10px] text-text-tertiary italic block">
                                   {assessment.stress_index.camera_fatigue.status_message}
