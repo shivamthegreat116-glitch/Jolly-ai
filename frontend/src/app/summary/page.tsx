@@ -387,16 +387,27 @@ export default function SummaryPage() {
                         </span>
                         <div>
                           <span className="font-label-sm font-semibold text-text-primary block text-xs">
-                            Camera Fatigue Sensor Recorded
+                            Camera Fatigue & Active Expression Recorded
                           </span>
-                          <span className="text-[11px] text-text-secondary">
-                            Blinks: {(cameraFatigue || stressIndex.camera_fatigue)?.blinks_per_min} bpm • {(cameraFatigue || stressIndex.camera_fatigue)?.status_message}
+                          <span className="text-[11px] text-text-secondary block">
+                            {(cameraFatigue || stressIndex.camera_fatigue)?.expression_emoji && `${(cameraFatigue || stressIndex.camera_fatigue)?.expression_emoji} `}
+                            {(cameraFatigue || stressIndex.camera_fatigue)?.expression_label || "Calm & Focused"} • Vitality: {(cameraFatigue || stressIndex.camera_fatigue)?.vitality_status || "Active"} • Blinks: {(cameraFatigue || stressIndex.camera_fatigue)?.blinks_per_min} bpm
+                          </span>
+                          <span className="text-[10px] text-text-tertiary italic block">
+                            {(cameraFatigue || stressIndex.camera_fatigue)?.status_message}
                           </span>
                         </div>
                       </div>
-                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container">
-                        {(cameraFatigue || stressIndex.camera_fatigue)?.score}% ({(cameraFatigue || stressIndex.camera_fatigue)?.level_label})
-                      </span>
+                      <div className="text-right shrink-0">
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container block">
+                          {(cameraFatigue || stressIndex.camera_fatigue)?.score}% ({(cameraFatigue || stressIndex.camera_fatigue)?.level_label})
+                        </span>
+                        {(cameraFatigue || stressIndex.camera_fatigue)?.mouth_state && (
+                          <span className="text-[9px] text-text-tertiary capitalize mt-0.5 block">
+                            👄 {(cameraFatigue || stressIndex.camera_fatigue)?.mouth_state}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

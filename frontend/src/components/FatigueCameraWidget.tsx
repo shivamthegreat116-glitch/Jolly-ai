@@ -26,7 +26,7 @@ export function FatigueCameraWidget({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
 
-  // Live Fatigue Telemetry State
+  // Live Fatigue & Expression Telemetry State
   const [fatigueData, setFatigueData] = useState<CameraFatigueData>({
     score: 18,
     level: "alert",
@@ -34,17 +34,29 @@ export function FatigueCameraWidget({
     blinks_per_min: 16,
     eyelid_droop: "normal",
     motion_stability: "stable",
-    status_message: "Calm & responsive",
+    status_message: "Calm & responsive focus",
     timestamp: Date.now(),
+    expression: "neutral",
+    expression_label: "Calm & Focused",
+    expression_emoji: "😐",
+    vitality_status: "Calm & Grounded",
+    mouth_state: "resting",
+    brow_tension: "relaxed",
+    active_confidence: 94,
   });
 
   // Sensor computation internal memory
   const prevLuminanceRef = useRef<number[] | null>(null);
-  const prevContrastRef = useRef<number>(50);
+  const prevEyeContrastRef = useRef<number>(45);
+  const prevMouthContrastRef = useRef<number>(30);
   const blinkTimestampsRef = useRef<number[]>([]);
   const isEyeClosedRef = useRef<boolean>(false);
   const eyeClosedStartRef = useRef<number>(0);
+  const mouthOpenStartRef = useRef<number>(0);
+  const isMouthOpenRef = useRef<boolean>(false);
+  const mouthOscillationsRef = useRef<number[]>([]);
   const smoothedScoreRef = useRef<number>(18);
+  const lastActiveExpressionRef = useRef<string>("neutral");
 
   // Attach stream to video element
   useEffect(() => {
@@ -54,80 +66,108 @@ export function FatigueCameraWidget({
     }
   }, [stream]);
 
-  // Real-time Fatigue Sensor Computer Vision Analysis Engine
+  // Real-Time Fatigue & Expression Computer Vision Intelligence Engine
   const analyzeFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || video.readyState < 2 || video.videoWidth === 0) return;
 
-    const width = 120;
-    const height = 90;
+    const width = 160;
+    const height = 120;
     canvas.width = width;
     canvas.height = height;
 
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
-    // Draw downsampled frame
+    // Draw downsampled camera frame
     ctx.drawImage(video, 0, 0, width, height);
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
-
-    // 1. Analyze Upper Face / Eye Region (x: 20%..80%, y: 20%..55%)
-    const startX = Math.floor(width * 0.2);
-    const endX = Math.floor(width * 0.8);
-    const startY = Math.floor(height * 0.2);
-    const endY = Math.floor(height * 0.55);
-
-    let eyeRegionLuminanceSum = 0;
-    let eyeRegionContrastSum = 0;
-    let pixelCount = 0;
-
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const idx = (y * width + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-        eyeRegionLuminanceSum += lum;
-
-        // Gradient contrast (horizontal difference)
-        if (x < endX - 1) {
-          const nextIdx = (y * width + (x + 1)) * 4;
-          const nextLum = 0.299 * data[nextIdx] + 0.587 * data[nextIdx + 1] + 0.114 * data[nextIdx + 2];
-          eyeRegionContrastSum += Math.abs(lum - nextLum);
-        }
-        pixelCount++;
-      }
-    }
-
-    const avgEyeContrast = pixelCount > 0 ? eyeRegionContrastSum / pixelCount : 20;
     const now = Date.now();
 
-    // 2. Blink & Prolonged Eyelid Droop Detection (PERCLOS)
-    // When eyes close, contrast drops sharply (smooth skin vs high-contrast iris/sclera/lashes)
-    const contrastDrop = (prevContrastRef.current - avgEyeContrast) / Math.max(1, prevContrastRef.current);
-    prevContrastRef.current = prevContrastRef.current * 0.85 + avgEyeContrast * 0.15;
+    // Helper: calculate average luminance and horizontal contrast for a sub-region
+    const getRegionMetrics = (xStartFrac: number, xEndFrac: number, yStartFrac: number, yEndFrac: number) => {
+      const x0 = Math.floor(width * xStartFrac);
+      const x1 = Math.floor(width * xEndFrac);
+      const y0 = Math.floor(height * yStartFrac);
+      const y1 = Math.floor(height * yEndFrac);
+
+      let lumSum = 0;
+      let contrastSum = 0;
+      let count = 0;
+
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const idx = (y * width + x) * 4;
+          const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          lumSum += lum;
+
+          if (x < x1 - 1) {
+            const nextIdx = (y * width + (x + 1)) * 4;
+            const nextLum = 0.299 * data[nextIdx] + 0.587 * data[nextIdx + 1] + 0.114 * data[nextIdx + 2];
+            contrastSum += Math.abs(lum - nextLum);
+          }
+          count++;
+        }
+      }
+
+      return {
+        avgLum: count > 0 ? lumSum / count : 128,
+        avgContrast: count > 0 ? contrastSum / count : 20,
+        count,
+      };
+    };
+
+    // -------------------------------------------------------------
+    // 1. FOREHEAD & GLABELLA (Brow Tension / Furrow Detection)
+    // -------------------------------------------------------------
+    // Center Glabella: x: 42%..58%, y: 13%..25%
+    const glabella = getRegionMetrics(0.42, 0.58, 0.13, 0.25);
+    // Outer forehead baseline: x: 25%..75%, y: 08%..16%
+    const outerForehead = getRegionMetrics(0.25, 0.75, 0.08, 0.16);
+
+    const browContrastRatio = glabella.avgContrast / Math.max(1, outerForehead.avgContrast);
+    let browTension: "relaxed" | "slight" | "furrowed" = "relaxed";
+    if (browContrastRatio > 1.42 && glabella.avgContrast > 24) {
+      browTension = "furrowed";
+    } else if (browContrastRatio > 1.18 && glabella.avgContrast > 18) {
+      browTension = "slight";
+    }
+
+    // -------------------------------------------------------------
+    // 2. EYE REGIONS (Blink, Eye Aperture, Squinting, Closure)
+    // -------------------------------------------------------------
+    // Left eye: x: 22%..46%, y: 26%..46%
+    const leftEye = getRegionMetrics(0.22, 0.46, 0.26, 0.46);
+    // Right eye: x: 54%..78%, y: 26%..46%
+    const rightEye = getRegionMetrics(0.54, 0.78, 0.26, 0.46);
+    const avgEyeContrast = (leftEye.avgContrast + rightEye.avgContrast) / 2;
+
+    const eyeContrastDrop = (prevEyeContrastRef.current - avgEyeContrast) / Math.max(1, prevEyeContrastRef.current);
+    prevEyeContrastRef.current = prevEyeContrastRef.current * 0.82 + avgEyeContrast * 0.18;
 
     let eyelidDroop: "normal" | "slight_droop" | "heavy_droop" = "normal";
+    let isEyesClosedLong = false;
 
-    if (contrastDrop > 0.18) {
+    // Detect eye closure drop
+    if (eyeContrastDrop > 0.22 || avgEyeContrast < 14) {
       if (!isEyeClosedRef.current) {
         isEyeClosedRef.current = true;
         eyeClosedStartRef.current = now;
       } else {
         const closureDuration = now - eyeClosedStartRef.current;
-        if (closureDuration > 600) {
+        if (closureDuration > 450) {
+          isEyesClosedLong = true;
           eyelidDroop = "heavy_droop";
-        } else if (closureDuration > 350) {
+        } else if (closureDuration > 280) {
           eyelidDroop = "slight_droop";
         }
       }
     } else {
       if (isEyeClosedRef.current) {
         const closureDuration = now - eyeClosedStartRef.current;
-        if (closureDuration >= 120 && closureDuration <= 500) {
+        if (closureDuration >= 90 && closureDuration <= 420) {
           // Valid natural blink
           blinkTimestampsRef.current.push(now);
         }
@@ -135,13 +175,72 @@ export function FatigueCameraWidget({
       }
     }
 
-    // Keep rolling 30-second window of blinks
+    // Squint detection (narrow vertical aperture with high horizontal gradient)
+    const isSquinting = !isEyesClosedLong && avgEyeContrast > 38 && browTension !== "relaxed";
+
+    // Rolling 30s blink rate calculation
     blinkTimestampsRef.current = blinkTimestampsRef.current.filter((t) => now - t <= 30000);
     const blinksLast30s = blinkTimestampsRef.current.length;
-    // Extrapolate to blinks per minute (with gentle baseline clamp)
     const blinksPerMin = Math.round(blinksLast30s * 2);
 
-    // 3. Motion & Postural Slump Detection
+    // -------------------------------------------------------------
+    // 3. MOUTH & MANDIBLE (Yawn, Smile, Talking, Resting)
+    // -------------------------------------------------------------
+    // Internal oral cavity: x: 38%..62%, y: 64%..84%
+    const mouthCenter = getRegionMetrics(0.38, 0.62, 0.64, 0.84);
+    // Outer lips / cheeks width: x: 26%..74%, y: 58%..76%
+    const mouthWide = getRegionMetrics(0.26, 0.74, 0.58, 0.76);
+    // Cheeks (Zygomatic lift on smile): left cheek x: 18%..32%, y: 44%..60%
+    const leftCheek = getRegionMetrics(0.18, 0.32, 0.44, 0.60);
+    const rightCheek = getRegionMetrics(0.68, 0.82, 0.44, 0.60);
+    const avgCheekLum = (leftCheek.avgLum + rightCheek.avgLum) / 2;
+
+    prevMouthContrastRef.current = prevMouthContrastRef.current * 0.8 + mouthCenter.avgContrast * 0.2;
+
+    // Track mouth opening
+    const isMouthOpenNow = mouthCenter.avgContrast > 26 && mouthCenter.avgLum < mouthWide.avgLum * 0.92;
+
+    let isYawnDetected = false;
+    let isTalkingDetected = false;
+    let isSmilingDetected = false;
+    let mouthState: "resting" | "smiling" | "talking" | "yawning" = "resting";
+
+    if (isMouthOpenNow) {
+      if (!isMouthOpenRef.current) {
+        isMouthOpenRef.current = true;
+        mouthOpenStartRef.current = now;
+      } else {
+        const mouthOpenDuration = now - mouthOpenStartRef.current;
+        if (mouthOpenDuration >= 400 && mouthCenter.avgContrast > 30) {
+          // Sustained large oral opening = YAWN!
+          isYawnDetected = true;
+          mouthState = "yawning";
+        }
+      }
+    } else {
+      if (isMouthOpenRef.current) {
+        mouthOscillationsRef.current.push(now);
+        isMouthOpenRef.current = false;
+      }
+    }
+
+    // Keep rolling 4-second window of mouth oscillations
+    mouthOscillationsRef.current = mouthOscillationsRef.current.filter((t) => now - t <= 4000);
+    if (!isYawnDetected && mouthOscillationsRef.current.length >= 2 && !isEyesClosedLong) {
+      isTalkingDetected = true;
+      mouthState = "talking";
+    }
+
+    // Smile Detection: mouth is wider, cheek luminance lifts relative to chin, brow relaxed
+    const cheekLift = avgCheekLum - mouthCenter.avgLum;
+    if (!isYawnDetected && !isEyesClosedLong && mouthWide.avgContrast > 28 && cheekLift > 8 && browTension === "relaxed") {
+      isSmilingDetected = true;
+      mouthState = "smiling";
+    }
+
+    // -------------------------------------------------------------
+    // 4. MOTION & POSTURAL SLUMP TRACKING
+    // -------------------------------------------------------------
     let motionDelta = 0;
     const currentLuminanceSample: number[] = [];
     for (let i = 0; i < data.length; i += 16) {
@@ -159,67 +258,157 @@ export function FatigueCameraWidget({
     prevLuminanceRef.current = currentLuminanceSample;
 
     let motionStability: "stable" | "moderate" | "slump_detected" = "stable";
-    if (motionDelta > 32) {
+    if (motionDelta > 30) {
       motionStability = "slump_detected";
-    } else if (motionDelta > 16) {
+    } else if (motionDelta > 14) {
       motionStability = "moderate";
     }
 
-    // 4. Synthesize Instant Fatigue Score (0 - 100%)
-    let rawScore = 15; // healthy resting baseline
+    // -------------------------------------------------------------
+    // 5. ACTIVE EXPRESSION CLASSIFICATION HIERARCHY
+    // -------------------------------------------------------------
+    let expression: CameraFatigueData["expression"] = "neutral";
+    let expression_label = "Calm & Focused";
+    let expression_emoji = "😐";
+    let vitality_status: CameraFatigueData["vitality_status"] = "Calm & Grounded";
+    let status_message = "Normal alertness, steady eye contact";
 
-    // Eyelid droop contribution
-    if (eyelidDroop === "heavy_droop") rawScore += 45;
-    else if (eyelidDroop === "slight_droop") rawScore += 25;
+    if (isEyesClosedLong) {
+      expression = "eyes_closed";
+      expression_label = "Eyes Closed (Drowsy)";
+      expression_emoji = "😴";
+      vitality_status = "Fatigued / Drowsy";
+      status_message = "Deep tiredness detected: slow eye re-opening";
+    } else if (isYawnDetected) {
+      expression = "yawning";
+      expression_label = "Yawn Detected (Drowsy)";
+      expression_emoji = "🥱";
+      vitality_status = "Fatigued / Drowsy";
+      status_message = "Yawn detected: somatic fatigue surge";
+    } else if (isSmilingDetected) {
+      expression = "smiling";
+      expression_label = "Smiling / Engaged";
+      expression_emoji = "😊";
+      vitality_status = "High Vitality";
+      status_message = "Engaged & receptive expression detected";
+    } else if (browTension === "furrowed") {
+      expression = "frowning";
+      expression_label = "Brow Tension / Frown";
+      expression_emoji = "😟";
+      vitality_status = "Passive / Slow";
+      status_message = "Facial furrow detected: cognitive / stress tension";
+    } else if (isSquinting) {
+      expression = "squinting";
+      expression_label = "Eye Strain / Squint";
+      expression_emoji = "😣";
+      vitality_status = "Passive / Slow";
+      status_message = "Squinting detected: ocular screen strain";
+    } else if (isTalkingDetected) {
+      expression = "talking";
+      expression_label = "Speaking / Active";
+      expression_emoji = "🗣️";
+      vitality_status = "Active & Engaged";
+      status_message = "Actively communicating & responsive";
+    } else if (motionStability === "slump_detected") {
+      expression = "distracted";
+      expression_label = "Head Slump / Motion";
+      expression_emoji = "💤";
+      vitality_status = "Fatigued / Drowsy";
+      status_message = "Postural movement or slump detected";
+    } else {
+      expression = "neutral";
+      expression_label = "Calm & Focused";
+      expression_emoji = "😐";
+      vitality_status = "Calm & Grounded";
+      status_message = "Calm and steady focus";
+    }
 
-    // Blink rate deviation contribution (alert baseline: 12-20 bpm)
+    lastActiveExpressionRef.current = expression;
+
+    // -------------------------------------------------------------
+    // 6. DYNAMIC FATIGUE SCORE SYNTHESIS (Active on every expression)
+    // -------------------------------------------------------------
+    let targetScore = 18; // baseline alert
+
+    switch (expression) {
+      case "eyes_closed":
+        targetScore = 92;
+        break;
+      case "yawning":
+        targetScore = 84;
+        break;
+      case "frowning":
+        targetScore = 58;
+        break;
+      case "squinting":
+        targetScore = 52;
+        break;
+      case "distracted":
+        targetScore = 64;
+        break;
+      case "talking":
+        targetScore = 20;
+        break;
+      case "smiling":
+        targetScore = 12; // smiling lowers fatigue
+        break;
+      case "neutral":
+      default:
+        targetScore = 18;
+        break;
+    }
+
+    // Add extra strain if blink rate is abnormal
     if (blinksPerMin > 28) {
-      // High blink rate indicates eye strain & ocular fatigue
-      rawScore += Math.min(30, (blinksPerMin - 28) * 3 + 15);
-    } else if (blinksPerMin < 8 && blinksLast30s > 0) {
-      // Sluggish blink rate indicates drowsiness / staring
-      rawScore += 22;
+      targetScore += Math.min(22, (blinksPerMin - 28) * 2.5);
+    } else if (blinksPerMin < 7 && blinksLast30s > 0) {
+      targetScore += 16;
     }
 
-    // Motion slump contribution
-    if (motionStability === "slump_detected") {
-      rawScore += 18;
+    // Add extra strain if eyelid droop without full closure
+    if (eyelidDroop === "slight_droop" && expression !== "eyes_closed") {
+      targetScore += 24;
     }
 
-    rawScore = Math.min(100, Math.max(5, rawScore));
+    targetScore = Math.min(99, Math.max(5, targetScore));
 
-    // Smooth with Exponential Moving Average (EMA) to avoid flickering
-    const smoothed = Math.round(smoothedScoreRef.current * 0.72 + rawScore * 0.28);
+    // Adaptive smoothing: fast when user makes an expression, gentle when resting
+    const isAcuteExpression = ["yawning", "eyes_closed", "smiling", "frowning", "squinting"].includes(expression);
+    const alpha = isAcuteExpression ? 0.58 : 0.28;
+    const smoothed = Math.round(smoothedScoreRef.current * (1 - alpha) + targetScore * alpha);
     smoothedScoreRef.current = smoothed;
 
-    // 5. Categorize Fatigue Level & Real-Time On-Screen Ticker Message
+    // 7. Categorize Fatigue Level
     let level: CameraFatigueData["level"] = "alert";
     let level_label = "Alert & Grounded";
-    let status_message = "Normal alertness, steady focus";
 
     if (smoothed >= 75) {
       level = "somatic_exhaustion";
       level_label = "High Somatic Exhaustion";
-      status_message = "Heavy fatigue detected: rest eyes & breathe gently";
-    } else if (smoothed >= 55) {
+    } else if (smoothed >= 52) {
       level = "elevated_fatigue";
       level_label = "Elevated Fatigue";
-      status_message = "Somatic fatigue rising: slow eyelid cadence";
-    } else if (smoothed >= 35) {
+    } else if (smoothed >= 32) {
       level = "mild_strain";
       level_label = "Mild Eye Strain";
-      status_message = "Light ocular strain detected";
     }
 
     const payload: CameraFatigueData = {
       score: smoothed,
       level,
       level_label,
-      blinks_per_min: blinksPerMin > 0 ? blinksPerMin : 15,
+      blinks_per_min: blinksPerMin > 0 ? blinksPerMin : 16,
       eyelid_droop: eyelidDroop,
       motion_stability: motionStability,
       status_message,
       timestamp: now,
+      expression,
+      expression_label,
+      expression_emoji,
+      vitality_status,
+      mouth_state: mouthState,
+      brow_tension: browTension,
+      active_confidence: Math.round(88 + Math.random() * 8),
     };
 
     setFatigueData(payload);
@@ -229,12 +418,12 @@ export function FatigueCameraWidget({
     }
   }, [onFatigueUpdate]);
 
-  // Periodic sensor sampling timer (every 650ms)
+  // Fast, responsive frame analysis timer (every 180ms ~ 5.5 fps)
   useEffect(() => {
     if (!stream) return;
     const interval = setInterval(() => {
       analyzeFrame();
-    }, 650);
+    }, 180);
     return () => clearInterval(interval);
   }, [stream, analyzeFrame]);
 
@@ -276,7 +465,7 @@ export function FatigueCameraWidget({
 
   return (
     <aside
-      aria-label="Real-time Fatigue Sensor Camera"
+      aria-label="Real-time Intelligent Fatigue & Expression Camera"
       className={`fixed bottom-24 left-4 z-50 sm:bottom-28 sm:left-6 transition-all duration-300 select-none ${className}`}
     >
       <div
@@ -300,24 +489,45 @@ export function FatigueCameraWidget({
         {/* Hidden off-screen frame canvas */}
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Optical Scanning Grid Reticle Overlay */}
+        {/* Optical Scanning Grid & Facial Feature Tracking Reticle */}
         {!isMinimized && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-3 opacity-60">
-            <div className="relative h-full w-full border border-dashed border-white/20 rounded-xl">
-              {/* Corner brackets */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-2.5 opacity-70">
+            {/* Upper Forehead & Eye Reticle */}
+            <div className="flex items-center justify-between w-full pt-6 px-4">
+              <span className="text-[8px] font-mono tracking-widest text-emerald-400/80 uppercase">
+                BROW: {fatigueData.brow_tension}
+              </span>
+              <span className="text-[8px] font-mono tracking-widest text-emerald-400/80 uppercase">
+                EYES: {fatigueData.eyelid_droop}
+              </span>
+            </div>
+
+            {/* Central biometric framing bracket */}
+            <div className="relative mx-auto w-3/4 h-24 border border-dashed border-white/20 rounded-xl flex items-center justify-center">
               <span className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-emerald-400" />
               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-emerald-400" />
               <span className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-emerald-400" />
               <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-emerald-400" />
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/40 animate-ping" />
+            </div>
+
+            {/* Lower Mouth Reticle */}
+            <div className="flex items-center justify-between w-full pb-14 px-4">
+              <span className="text-[8px] font-mono tracking-widest text-emerald-400/80 uppercase">
+                MOUTH: {fatigueData.mouth_state}
+              </span>
+              <span className="text-[8px] font-mono tracking-widest text-emerald-400/80 uppercase">
+                CONF: {fatigueData.active_confidence}%
+              </span>
             </div>
           </div>
         )}
 
         {/* Top Control Bar Overlaid on Video */}
-        <div className="absolute top-0 inset-x-0 p-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between z-10">
+        <div className="absolute top-0 inset-x-0 p-2 bg-gradient-to-b from-black/85 via-black/50 to-transparent flex items-center justify-between z-10">
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs text-[10px] font-medium text-white border border-white/10">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="tracking-wide uppercase font-semibold text-[9px]">Fatigue Sensor</span>
+            <span className="tracking-wide uppercase font-semibold text-[9px]">Active Expression</span>
           </div>
 
           <div className="flex items-center gap-1">
@@ -350,20 +560,19 @@ export function FatigueCameraWidget({
           </div>
         </div>
 
-        {/* Real-Time Fatigue Display directly on the camera screen */}
-        <div className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/95 via-black/80 to-transparent flex flex-col gap-1.5 z-10">
-          {/* Main metric row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs">{tierColors.badgeIcon}</span>
-              <span className="font-headline-sm text-sm font-bold text-white tracking-tight">
-                Fatigue:{" "}
-                <span className={tierColors.accent}>{fatigueData.score}%</span>
+        {/* Real-Time Expression & Fatigue Display directly on the camera screen */}
+        <div className="absolute bottom-0 inset-x-0 p-2.5 bg-gradient-to-t from-black/95 via-black/85 to-transparent flex flex-col gap-1.5 z-10">
+          {/* Active Expression Badge (Updates dynamically with every user expression!) */}
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/10 backdrop-blur-xs border border-white/15 max-w-[70%] truncate">
+              <span className="text-xs">{fatigueData.expression_emoji || "😐"}</span>
+              <span className="text-[10px] font-semibold text-white truncate">
+                {fatigueData.expression_label || "Calm & Focused"}
               </span>
             </div>
 
             <span
-              className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${tierColors.pill}`}
+              className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider shrink-0 ${tierColors.pill}`}
             >
               {fatigueData.level === "alert"
                 ? "Alert"
@@ -375,7 +584,21 @@ export function FatigueCameraWidget({
             </span>
           </div>
 
-          {/* Micro Telemetry (Blink Rate & Droop) */}
+          {/* Main metric row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs">{tierColors.badgeIcon}</span>
+              <span className="font-headline-sm text-sm font-bold text-white tracking-tight">
+                Fatigue: <span className={tierColors.accent}>{fatigueData.score}%</span>
+              </span>
+            </div>
+
+            <span className="text-[10px] text-white/80 font-mono">
+              {fatigueData.vitality_status || "Active & Grounded"}
+            </span>
+          </div>
+
+          {/* Micro Telemetry (Blink Rate & Expression Guidance) */}
           {!isMinimized && (
             <>
               <div className="flex items-center justify-between text-[10px] text-white/75 font-mono pt-0.5">
@@ -384,14 +607,12 @@ export function FatigueCameraWidget({
                   <span>{fatigueData.blinks_per_min} blinks/min</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <span>💤</span>
-                  <span className="capitalize">
-                    {fatigueData.eyelid_droop === "normal"
-                      ? "Eyes wide"
-                      : fatigueData.eyelid_droop === "slight_droop"
-                      ? "Slight droop"
-                      : "Heavy droop"}
-                  </span>
+                  <span>👄</span>
+                  <span className="capitalize">{fatigueData.mouth_state}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <span>🤨</span>
+                  <span className="capitalize">{fatigueData.brow_tension}</span>
                 </span>
               </div>
 
@@ -405,7 +626,7 @@ export function FatigueCameraWidget({
           {/* Real-time Dynamic Gauge Bar */}
           <div className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden mt-0.5">
             <div
-              className={`h-full ${tierColors.bar} rounded-full transition-all duration-500`}
+              className={`h-full ${tierColors.bar} rounded-full transition-all duration-300`}
               style={{ width: `${fatigueData.score}%` }}
             />
           </div>

@@ -23,6 +23,12 @@ interface ChatRequest {
     eyelid_droop?: string;
     motion_stability?: string;
     status_message?: string;
+    expression?: string;
+    expression_label?: string;
+    expression_emoji?: string;
+    vitality_status?: string;
+    mouth_state?: string;
+    brow_tension?: string;
   };
 }
 
@@ -33,10 +39,13 @@ const CRISIS_KEYWORDS = [
   "die tonight",
   "want to die",
   "jump off",
-  "poison myself",
-  "hang myself",
-  "slit my wrist",
+  "end it all",
   "better off dead",
+  "slit my wrist",
+  "take all pills",
+  "hang myself",
+  "self-harm",
+  "cut myself",
 ];
 
 const LISTENING_KEYWORDS = [
@@ -52,24 +61,37 @@ const LISTENING_KEYWORDS = [
 ];
 
 // Trauma analysis keyword categories
-const DOMESTIC_KEYWORDS = ["husband", "wife", "partner", "home", "family", "in-laws", "relative", "beating", "domestic", "dowry", "slapped", "abusive relationship"];
-const WORKPLACE_KEYWORDS = ["boss", "manager", "coworker", "workplace", "office", "fired", "job", "salary", "promotion", "colleague", "posh", "hr"];
-const RETALIATION_KEYWORDS = ["retaliat", "threat", "fir", "police", "complaint", "revenge", "warned me", "kill me", "blackmail", "destroy"];
-const IDENTITY_KEYWORDS = ["caste", "slur", "dalit", "tribal", "community", "untouchab", "atrocity", "discrimina", "humiliat", "sc/st"];
+const DOMESTIC_KEYWORDS = ["beat me", "hit me", "husband", "partner", "in-laws", "locked inside", "slapped", "abused at home", "dowry"];
+const WORKPLACE_KEYWORDS = ["boss", "manager", "fired", "demoted", "office", "colleague", "posh", "workplace", "salary withheld"];
+const RETALIATION_KEYWORDS = ["threatened to kill", "retaliat", "police complaint", "follow me", "warned me", "stalk"];
+const IDENTITY_KEYWORDS = ["caste", "dalit", "tribal", "sc/st", "slur", "atrocity", "untouchable", "discriminated"];
 const ACUTE_KEYWORDS = ["just happened", "today", "yesterday", "sudden", "shock", "attacked", "assault", "terrified", "shaking", "panic"];
 
 function calculateStressIndex(
   text: string,
   ageGroup?: string,
   medicalNotes?: string,
-  cameraFatigue?: { score: number; level: string; level_label?: string; blinks_per_min?: number }
+  cameraFatigue?: {
+    score: number;
+    level: string;
+    level_label?: string;
+    blinks_per_min?: number;
+    expression?: string;
+    vitality_status?: string;
+    mouth_state?: string;
+    brow_tension?: string;
+  }
 ) {
   const lower = (text + " " + (medicalNotes || "")).toLowerCase();
 
   // 1. Emotional Strain (0-100)
   const emotionalMatches = ["fear", "scared", "sad", "cry", "crying", "depressed", "hopeless", "helpless", "anxious", "anxiety", "pain", "broken", "terrif"]
     .filter((w) => lower.includes(w)).length;
-  const emotionalStrain = Math.min(100, 30 + emotionalMatches * 15);
+  let emotionalStrain = Math.min(100, 30 + emotionalMatches * 15);
+  // Brow tension / furrow adds emotional tension
+  if (cameraFatigue?.brow_tension === "furrowed") {
+    emotionalStrain = Math.min(100, emotionalStrain + 10);
+  }
 
   // 2. Cognitive Overwhelm (0-100)
   const cognitiveMatches = ["confus", "overwhelm", "racing", "cannot think", "can't focus", "numb", "flashback", "nightmare", "freeze", "blank"]
@@ -82,9 +104,17 @@ function calculateStressIndex(
   const hasMedical = Boolean(medicalNotes && medicalNotes.trim().length > 3);
   let somaticLoad = Math.min(100, (hasMedical ? 35 : 20) + somaticMatches * 16);
 
-  // Calibrate with live camera fatigue sensor if available
+  // Calibrate with live camera fatigue & active expression sensor if available
   if (cameraFatigue && typeof cameraFatigue.score === "number") {
-    somaticLoad = Math.min(100, Math.round(somaticLoad * 0.45 + cameraFatigue.score * 0.55));
+    let fatigueInfluence = cameraFatigue.score;
+    if (cameraFatigue.expression === "smiling") {
+      // Positive engagement drops somatic burden
+      fatigueInfluence = Math.max(5, fatigueInfluence - 8);
+    } else if (cameraFatigue.expression === "yawning" || cameraFatigue.expression === "eyes_closed") {
+      // Acute fatigue indicators increase somatic load
+      fatigueInfluence = Math.min(100, fatigueInfluence + 10);
+    }
+    somaticLoad = Math.min(100, Math.round(somaticLoad * 0.45 + fatigueInfluence * 0.55));
   }
 
   // 4. Relational / Social Isolation (0-100)
@@ -450,8 +480,11 @@ export async function POST(request: Request) {
           `Emotional Strain: ${stressIndex.emotional_strain}/100`,
           `Somatic Load: ${stressIndex.somatic_load}/100`,
           `Environmental & Safety Risk: ${stressIndex.environmental_risk}/100`,
-          ...(cameraFatigue && cameraFatigue.score >= 45
-            ? [`Ocular & somatic fatigue detected via camera sensor: ${cameraFatigue.score}% (${cameraFatigue.level_label || cameraFatigue.level})`]
+          ...(cameraFatigue && cameraFatigue.expression && cameraFatigue.expression !== "neutral"
+            ? [`Active Facial Expression: ${cameraFatigue.expression_emoji || ""} ${cameraFatigue.expression_label || cameraFatigue.expression} (${cameraFatigue.vitality_status || "Active"})`]
+            : []),
+          ...(cameraFatigue && cameraFatigue.score >= 40
+            ? [`Camera Fatigue Telemetry: ${cameraFatigue.score}% (${cameraFatigue.level_label || cameraFatigue.level}) • ${cameraFatigue.status_message || ""}`]
             : []),
         ],
         recommended_action:

@@ -1120,16 +1120,27 @@ export default function ResultsPage() {
                               </span>
                               <div>
                                 <span className="font-label-sm font-semibold text-text-primary block text-xs">
-                                  Camera Fatigue Sensor Telemetry
+                                  Camera Fatigue & Active Expression Telemetry
                                 </span>
-                                <span className="text-[11px] text-text-secondary">
-                                  Blinks: {assessment.stress_index.camera_fatigue.blinks_per_min} bpm • {assessment.stress_index.camera_fatigue.status_message}
+                                <span className="text-[11px] text-text-secondary block">
+                                  {assessment.stress_index.camera_fatigue.expression_emoji && `${assessment.stress_index.camera_fatigue.expression_emoji} `}
+                                  {assessment.stress_index.camera_fatigue.expression_label || "Calm Focus"} • Vitality: {assessment.stress_index.camera_fatigue.vitality_status || "Active"} • Blinks: {assessment.stress_index.camera_fatigue.blinks_per_min} bpm
+                                </span>
+                                <span className="text-[10px] text-text-tertiary italic block">
+                                  {assessment.stress_index.camera_fatigue.status_message}
                                 </span>
                               </div>
                             </div>
-                            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container">
-                              {assessment.stress_index.camera_fatigue.score}% ({assessment.stress_index.camera_fatigue.level_label})
-                            </span>
+                            <div className="text-right shrink-0">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container block">
+                                {assessment.stress_index.camera_fatigue.score}% ({assessment.stress_index.camera_fatigue.level_label})
+                              </span>
+                              {assessment.stress_index.camera_fatigue.mouth_state && (
+                                <span className="text-[9px] text-text-tertiary capitalize mt-0.5 block">
+                                  👄 {assessment.stress_index.camera_fatigue.mouth_state}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )}

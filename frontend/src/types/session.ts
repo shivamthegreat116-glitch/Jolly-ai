@@ -64,6 +64,27 @@ export interface CameraFatigueData {
   motion_stability: "stable" | "moderate" | "slump_detected";
   status_message: string;
   timestamp: number;
+  // Expression Intelligence & Active Facial Dynamics
+  expression?:
+    | "neutral"
+    | "smiling"
+    | "talking"
+    | "frowning"
+    | "yawning"
+    | "eyes_closed"
+    | "squinting"
+    | "distracted";
+  expression_label?: string;
+  expression_emoji?: string;
+  vitality_status?:
+    | "High Vitality"
+    | "Active & Engaged"
+    | "Calm & Grounded"
+    | "Passive / Slow"
+    | "Fatigued / Drowsy";
+  mouth_state?: "resting" | "smiling" | "talking" | "yawning";
+  brow_tension?: "relaxed" | "slight" | "furrowed";
+  active_confidence?: number; // 0 to 100
 }
 
 export interface InteractionObject {
