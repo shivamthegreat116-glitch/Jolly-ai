@@ -39,7 +39,7 @@ export function EmergencyButton({
         {
           name: "National Helpline Against Atrocities (NHAA)",
           contact: "14566",
-          portal_url: "https://nhaa.gov.in",
+          portal_url: "https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/",
           service_type: "government",
           notes: "24/7 Toll-free assistance & digital reporting portal across India.",
         },

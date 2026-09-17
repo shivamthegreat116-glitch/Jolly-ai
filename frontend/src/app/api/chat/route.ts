@@ -179,7 +179,7 @@ function identifyTraumaTypology(text: string, stressScore: number) {
     evidence_quotes: quotes,
     recommended_interventions: [
       "Trauma-informed somatic grounding & emotional validation",
-      "Confidential NHAA (14566) and National Portal (https://nhaa.gov.in) guidance",
+      "Confidential NHAA (14566) and National Portal (https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/) guidance",
       "Optional 1-on-1 human counselor consultation via Jitsi video bridge",
       "Local legal aid & protective shelter coordination if requested",
     ],
@@ -224,7 +224,7 @@ export async function POST(request: Request) {
         crisis_level: "none",
         resources: {
           nhaa_helpline: "14566",
-          nhaa_portal: "https://nhaa.gov.in",
+          nhaa_portal: "https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/",
           tele_manas: "14416",
           emergency: "112",
         },
@@ -233,7 +233,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. High-Severity Crisis Check (Always includes 14566 & https://nhaa.gov.in)
+    // 2. High-Severity Crisis Check (Always includes 14566 & https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/)
     const isCrisis = CRISIS_KEYWORDS.some((kw) => lower.includes(kw));
     if (isCrisis) {
       const roomToken = crypto.randomBytes(4).toString("hex");
@@ -247,7 +247,7 @@ export async function POST(request: Request) {
           "• Tele-MANAS (Mental Health): 14416 or 1800-891-4416\n" +
           "• National Emergency Services: 112\n" +
           "• National Helpline Against Atrocities (NHAA): 14566\n" +
-          "• NHAA Official Digital Portal: https://nhaa.gov.in\n" +
+          "• NHAA Official Digital Portal: https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/\n" +
           "• KIRAN Psychosocial Support: 1800-599-0019\n\n" +
           "Are you in a safe place right now, or is there someone nearby who can stay with you?",
         next_phase: "crisis",
@@ -262,7 +262,7 @@ export async function POST(request: Request) {
           risk_category: "Severe Crisis Strain",
           confidence: "high",
           risk_reasons: ["Self-harm or severe crisis indicators detected in conversation"],
-          recommended_action: "Immediate connection with Tele-MANAS (14416), Emergency (112), or NHAA (14566 / https://nhaa.gov.in).",
+          recommended_action: "Immediate connection with Tele-MANAS (14416), Emergency (112), or NHAA (14566 / https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/).",
           human_review_recommended: true,
           voice_signal_status: "available",
           disclaimer: "Support & triage guidance only — not a clinical diagnosis.",
@@ -270,7 +270,7 @@ export async function POST(request: Request) {
           stress_index: calculateStressIndex(userText, ageGroup, medicalHistory, cameraFatigue),
           trauma_typology: identifyTraumaTypology(userText, 95),
         },
-        draft_summary: `Safety crisis noted: User expressed critical distress. Reassurance and emergency helplines (14416, 112, 14566, https://nhaa.gov.in) provided.`,
+        draft_summary: `Safety crisis noted: User expressed critical distress. Reassurance and emergency helplines (14416, 112, 14566, https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/) provided.`,
         crisis_mode: true,
         voice_signal_status: "available",
         video_room_url: videoRoomUrl,
@@ -316,7 +316,7 @@ export async function POST(request: Request) {
         "• Emotional support & active listening 💬\n" +
         "• Legal & rights guidance ⚖️\n" +
         "• Medical / physical health support 🏥\n" +
-        "• Official complaint pathway (NHAA Helpline 14566 & https://nhaa.gov.in) 📋\n\n" +
+        "• Official complaint pathway (NHAA Helpline 14566 & https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/) 📋\n\n" +
         "Feel free to select an option or share in your own words.";
       draftSummary = `Safety and age context established. Proceeding to explore primary support needs.`;
     } else if (phase === "need" || currentQid === "Q02_SUPPORT_NEED") {
@@ -370,7 +370,7 @@ export async function POST(request: Request) {
     if (apiKey && userText.length > 2) {
       try {
         const systemPrompt =
-          "You are Jolly AI, an empathetic, trauma-informed support and triage companion for complainants accessing the National Helpline Against Atrocities (NHAA 14566 & https://nhaa.gov.in) in India. " +
+          "You are Jolly AI, an empathetic, trauma-informed support and triage companion for complainants accessing the National Helpline Against Atrocities (NHAA 14566 & https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/) in India. " +
           "Provide genuine emotional validation, warmth, and active listening. " +
           "Never give unsolicited pushy advice or checklists when the user expresses sadness or grief. " +
           "If the user mentions medical history or physical symptoms, acknowledge how trauma impacts the body compassionately. " +
@@ -455,7 +455,7 @@ export async function POST(request: Request) {
             : []),
         ],
         recommended_action:
-          "Confidential guidance, psychosocial listening, and optional NHAA reporting (Helpline: 14566 | Portal: https://nhaa.gov.in).",
+          "Confidential guidance, psychosocial listening, and optional NHAA reporting (Helpline: 14566 | Portal: https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/).",
         human_review_recommended: stressIndex.overall_score >= 60,
         voice_signal_status: "available",
         disclaimer: "Support and triage tool only — not a clinical or legal diagnosis.",
@@ -472,7 +472,7 @@ export async function POST(request: Request) {
       crisis_level: "none",
       resources: {
         nhaa_helpline: "14566",
-        nhaa_portal: "https://nhaa.gov.in",
+        nhaa_portal: "https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/",
         tele_manas: "14416",
         emergency: "112",
       },

@@ -1053,13 +1053,13 @@ export default function ChatPage() {
                   <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">NHAA Helpline</span>
                 </a>
                 <a
-                  href="https://nhaa.gov.in"
+                  href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
                 >
-                  <span className="font-label-md text-label-md font-bold text-primary">🌐 nhaa.gov.in</span>
-                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">Digital Portal</span>
+                  <span className="font-label-md text-label-md font-bold text-primary">🌐 dosje.gov.in</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">NHAA Portal</span>
                 </a>
                 <a
                   href="tel:18005990019"
@@ -1364,7 +1364,7 @@ export default function ChatPage() {
 
           <div className="text-center pb-2">
             <p className="font-label-sm text-label-sm text-text-secondary">
-              NHAA Helpline <a href="tel:14566" className="underline font-semibold text-primary">14566</a> (24/7 Toll-free) · Official <a href="https://nhaa.gov.in" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-primary">Digital Portal (nhaa.gov.in)</a>. Your conversations are anonymous.
+              NHAA Helpline <a href="tel:14566" className="underline font-semibold text-primary">14566</a> (24/7 Toll-free) · Official <a href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-primary">Digital Portal (dosje.gov.in)</a>. Your conversations are anonymous.
             </p>
           </div>
         </div>

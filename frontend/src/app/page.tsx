@@ -58,7 +58,7 @@ export default function LandingPage() {
             <div className="shrink-0 flex items-center gap-3">
               <a
                 className="inline-flex items-center gap-1 text-safety-emergency font-label-sm text-label-sm font-semibold hover:opacity-80 transition-opacity"
-                href="https://nhaa.gov.in"
+                href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -200,7 +200,7 @@ export default function LandingPage() {
               </a>
               <a
                 className="w-full min-h-[46px] rounded-xl bg-surface-crisp text-primary px-3 flex items-center justify-center gap-2 transition-opacity hover:bg-bg-subtle active:scale-[0.99] font-label-md text-label-md font-medium border border-border-subtle shadow-2xs"
-                href="https://nhaa.gov.in"
+                href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                 target="_blank"
                 rel="noopener noreferrer"
               >

@@ -210,7 +210,7 @@ const CHECK_IN_QUESTIONS: CheckInQuestion[] = [
       {
         value: "legal",
         label: "Clear legal and institutional pathways under NHAA 14566 & Digital Portal",
-        sublabel: "Know your rights, filing procedures, and protections (nhaa.gov.in).",
+        sublabel: "Know your rights, filing procedures, and protections (dosje.gov.in).",
       },
       {
         value: "grounding",
@@ -492,13 +492,13 @@ export default function ResultsPage() {
     if (composite_svi >= 70) {
       riskCat = "High Strain / Acute Support";
       recommended =
-        "Direct connection to an NHAA 14566 counselor or specialized trauma advocate is recommended (Helpline: 14566 | Digital Portal: https://nhaa.gov.in).";
+        "Direct connection to an NHAA 14566 counselor or specialized trauma advocate is recommended (Helpline: 14566 | Digital Portal: https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/).";
       humanReview = true;
       crisisMode = true;
     } else if (composite_svi >= 40) {
       riskCat = "Moderate Strain";
       recommended =
-        "Trauma-informed guidance, confidential counseling referral (14566 & nhaa.gov.in), and reflective drafting.";
+        "Trauma-informed guidance, confidential counseling referral (14566 & dosje.gov.in), and reflective drafting.";
       humanReview = true;
     }
 
@@ -601,7 +601,7 @@ export default function ResultsPage() {
       human_review_recommended: humanReview,
       voice_signal_status: "Normal / Not active",
       disclaimer:
-        "This assessment is non-diagnostic and designed solely to connect you with appropriate NHAA (14566 / https://nhaa.gov.in) and wellness resources.",
+        "This assessment is non-diagnostic and designed solely to connect you with appropriate NHAA (14566 / https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/) and wellness resources.",
       crisis_mode: crisisMode,
       stress_index,
       trauma_typology,
@@ -812,7 +812,7 @@ export default function ResultsPage() {
                           </a>
                           <a
                             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-crisp text-safety-emergency border border-safety-emergency/30 font-label-md font-medium shadow-xs hover:bg-safety-emergency-subtle active:scale-95 transition-all min-h-[44px]"
-                            href="https://nhaa.gov.in"
+                            href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                             target="_blank"
                             rel="noopener noreferrer"
                           >
@@ -1223,13 +1223,13 @@ export default function ResultsPage() {
                       <span>Call 14566</span>
                     </a>
                     <a
-                      href="https://nhaa.gov.in"
+                      href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-surface-crisp text-primary-container border border-primary-container/30 font-label-sm font-medium shadow-xs hover:bg-surface-container transition-all"
                     >
                       <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                      <span>nhaa.gov.in</span>
+                      <span>dosje.gov.in</span>
                     </a>
                   </div>
                 </div>

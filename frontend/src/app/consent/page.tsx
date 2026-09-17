@@ -346,7 +346,7 @@ export default function ConsentPage() {
             <div className="flex-1 min-w-0">
               <h3 className="font-label-md text-label-md font-semibold text-safety-emergency">Need immediate protection?</h3>
               <p className="font-body-sm text-body-sm text-text-secondary mt-0.5">
-                Dial <a href="tel:14566" className="font-semibold text-safety-emergency underline">14566</a> (NHAA 24/7) or <a href="tel:112" className="font-semibold text-safety-emergency underline">112</a> (Emergency). Access the official <a href="https://nhaa.gov.in" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">NHAA Digital Portal</a>.
+                Dial <a href="tel:14566" className="font-semibold text-safety-emergency underline">14566</a> (NHAA 24/7) or <a href="tel:112" className="font-semibold text-safety-emergency underline">112</a> (Emergency). Access the official <a href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">NHAA Digital Portal</a>.
               </p>
             </div>
           </div>

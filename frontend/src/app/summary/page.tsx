@@ -427,13 +427,13 @@ export default function SummaryPage() {
               <span>Call 14566</span>
             </a>
             <a
-              href="https://nhaa.gov.in"
+              href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-surface-crisp text-primary-container border border-primary-container/30 font-label-sm font-medium shadow-xs hover:bg-surface-container transition-all"
             >
               <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-              <span>nhaa.gov.in</span>
+              <span>dosje.gov.in</span>
             </a>
           </div>
         </div>

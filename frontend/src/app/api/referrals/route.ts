@@ -17,7 +17,7 @@ export async function GET() {
     {
       name: "National Helpline Against Atrocities (NHAA)",
       contact: "14566",
-      portal_url: "https://nhaa.gov.in",
+      portal_url: "https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/",
       service_type: "government",
       notes: "Toll-free 24x7 support and official Digital Grievance Portal for victims (MoSJE).",
     },

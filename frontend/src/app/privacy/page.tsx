@@ -310,7 +310,7 @@ export default function PrivacyPage() {
               , or access the official{" "}
               <a
                 className="font-semibold text-primary underline underline-offset-2"
-                href="https://nhaa.gov.in"
+                href="https://www.dosje.gov.in/organisation/national-helpline-against-atrocities/"
                 target="_blank"
                 rel="noopener noreferrer"
               >
