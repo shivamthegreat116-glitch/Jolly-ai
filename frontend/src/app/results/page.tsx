@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { SanctuaryHeader } from "@/components/SanctuaryHeader";
 import { SanctuaryNav } from "@/components/SanctuaryNav";
+import { FatigueCameraWidget } from "@/components/FatigueCameraWidget";
 import type {
   AgeGroup,
   StressIndexBreakdown,
   TraumaTypology,
   MedicalHistoryContext,
+  CameraFatigueData,
 } from "@/types/session";
 
 type Assessment = {
@@ -257,6 +259,59 @@ export default function ResultsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<"checkin" | "results">("checkin");
 
+  // Real-time Fatigue Camera Sensor State
+  const [cameraActive, setCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
+  const [liveFatigue, setLiveFatigue] = useState<CameraFatigueData | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+        cameraStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  async function startCamera(mode: "user" | "environment" = facingMode) {
+    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+      cameraStreamRef.current = null;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setFacingMode(mode);
+      setCameraActive(true);
+    } catch {
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        cameraStreamRef.current = fallbackStream;
+        setCameraActive(true);
+      } catch {
+        setCameraActive(false);
+      }
+    }
+  }
+
+  function stopCamera() {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((t) => t.stop());
+      cameraStreamRef.current = null;
+    }
+    setCameraActive(false);
+  }
+
+  async function flipCamera() {
+    const nextMode = facingMode === "user" ? "environment" : "user";
+    await startCamera(nextMode);
+  }
+
   useEffect(() => {
     const raw = sessionStorage.getItem("jolly_assessment");
     if (raw && raw !== "null") {
@@ -389,6 +444,24 @@ export default function ResultsPage() {
       answers[3] === "severe" ? 80 : answers[3] === "minor" ? 50 : 20;
     if (answers[4] === "chronic_pain") somatic_load = Math.min(100, somatic_load + 25);
     if (answers[4] === "mental_health_care") somatic_load = Math.min(100, somatic_load + 15);
+
+    // Calibrate somatic load with live camera fatigue sensor if active
+    let cameraFatigue: CameraFatigueData | undefined = liveFatigue || undefined;
+    if (!cameraFatigue) {
+      try {
+        const rawCF = sessionStorage.getItem("jolly_camera_fatigue");
+        if (rawCF) cameraFatigue = JSON.parse(rawCF);
+      } catch {}
+    }
+    if (cameraFatigue && typeof cameraFatigue.score === "number") {
+      somatic_load = Math.min(100, Math.round(somatic_load * 0.45 + cameraFatigue.score * 0.55));
+      if (cameraFatigue.score >= 50) {
+        reasons.push(
+          `Camera Fatigue Sensor: ${cameraFatigue.score}% (${cameraFatigue.level_label}) detected during assessment`
+        );
+      }
+    }
+
     const relational_isolation =
       answers[2] === "alone" ? 85 : answers[2] === "some" ? 45 : answers[2] === "official" ? 30 : 50;
     const environmental_risk =
@@ -439,6 +512,7 @@ export default function ResultsPage() {
       environmental_risk,
       composite_svi,
       severity_level,
+      camera_fatigue: cameraFatigue,
     };
 
     const compiledNotes = Object.values(notes).filter(Boolean).join("\n\n");
@@ -587,14 +661,31 @@ export default function ResultsPage() {
                     Stress & Needs Check-in
                   </h1>
                 </div>
-                <button
-                  className="font-label-md text-text-secondary hover:text-primary-container transition-colors py-1 px-2.5 rounded-lg"
-                  id="skip-btn"
-                  type="button"
-                  onClick={handleSkip}
-                >
-                  Skip question
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={cameraActive ? stopCamera : () => void startCamera()}
+                    className={`text-xs font-label-sm font-medium py-1 px-2.5 rounded-lg border transition-all inline-flex items-center gap-1.5 shadow-2xs ${
+                      cameraActive
+                        ? "bg-secondary-container text-primary font-semibold border-primary/30"
+                        : "bg-surface-container text-text-secondary hover:text-text-primary border-border-subtle"
+                    }`}
+                    title="Toggle Real-Time Camera Fatigue Sensor"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">
+                      {cameraActive ? "videocam" : "videocam_off"}
+                    </span>
+                    <span>{cameraActive ? "Fatigue Sensor Active" : "Fatigue Camera"}</span>
+                  </button>
+                  <button
+                    className="font-label-md text-text-secondary hover:text-primary-container transition-colors py-1 px-2.5 rounded-lg"
+                    id="skip-btn"
+                    type="button"
+                    onClick={handleSkip}
+                  >
+                    Skip question
+                  </button>
+                </div>
               </div>
               <p className="font-body-sm text-text-secondary mb-3">
                 You are always in control here. Take as many pauses as you need.
@@ -1018,6 +1109,30 @@ export default function ResultsPage() {
                           />
                         </div>
                       </div>
+
+                      {/* Live Camera Fatigue Sensor Telemetry */}
+                      {assessment.stress_index.camera_fatigue && (
+                        <div className="pt-2 border-t border-border-subtle/50 mt-2">
+                          <div className="p-3 rounded-xl bg-bg-canvas border border-primary-container/30 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="material-symbols-outlined text-primary-container text-[18px]">
+                                videocam
+                              </span>
+                              <div>
+                                <span className="font-label-sm font-semibold text-text-primary block text-xs">
+                                  Camera Fatigue Sensor Telemetry
+                                </span>
+                                <span className="text-[11px] text-text-secondary">
+                                  Blinks: {assessment.stress_index.camera_fatigue.blinks_per_min} bpm • {assessment.stress_index.camera_fatigue.status_message}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container">
+                              {assessment.stress_index.camera_fatigue.score}% ({assessment.stress_index.camera_fatigue.level_label})
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1166,6 +1281,20 @@ export default function ResultsPage() {
           </div>
         )}
       </main>
+
+      {/* Floating Bottom-Left Real-Time Fatigue Camera HUD */}
+      {cameraActive && (
+        <FatigueCameraWidget
+          stream={cameraStreamRef.current}
+          facingMode={facingMode}
+          onClose={stopCamera}
+          onFlip={() => void flipCamera()}
+          onFatigueUpdate={(data) => {
+            setLiveFatigue(data);
+            sessionStorage.setItem("jolly_camera_fatigue", JSON.stringify(data));
+          }}
+        />
+      )}
 
       <SanctuaryNav activePath="assessment" />
     </div>

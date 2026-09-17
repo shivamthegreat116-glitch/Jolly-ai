@@ -55,6 +55,17 @@ export type TerminationReason =
 
 export type InputType = "text" | "voice" | "text_camera" | "voice_camera";
 
+export interface CameraFatigueData {
+  score: number; // 0 to 100
+  level: "alert" | "mild_strain" | "elevated_fatigue" | "somatic_exhaustion";
+  level_label: string;
+  blinks_per_min: number;
+  eyelid_droop: "normal" | "slight_droop" | "heavy_droop";
+  motion_stability: "stable" | "moderate" | "slump_detected";
+  status_message: string;
+  timestamp: number;
+}
+
 export interface InteractionObject {
   interaction_id: string;
   session_id: string;
@@ -62,6 +73,7 @@ export interface InteractionObject {
   text: string;
   audio_metadata?: VoiceFeatures;
   camera_frame?: string | null;
+  camera_fatigue?: CameraFatigueData;
   timestamp: string;
 }
 
@@ -85,6 +97,7 @@ export interface StressIndexBreakdown {
   composite_svi?: number;
   severity_level?: "mild" | "moderate" | "high" | "acute" | string;
   voice_acoustic_strain?: number; // 0 to 100
+  camera_fatigue?: CameraFatigueData;
 }
 
 export interface TraumaTypology {

@@ -11,6 +11,7 @@ import type {
   StressIndexBreakdown,
   TraumaTypology,
   MedicalHistoryContext,
+  CameraFatigueData,
 } from "@/types/session";
 
 export default function SummaryPage() {
@@ -24,6 +25,7 @@ export default function SummaryPage() {
   const [stressIndex, setStressIndex] = useState<StressIndexBreakdown | null>(null);
   const [traumaTypology, setTraumaTypology] = useState<TraumaTypology | null>(null);
   const [medicalHistory, setMedicalHistory] = useState<MedicalHistoryContext | null>(null);
+  const [cameraFatigue, setCameraFatigue] = useState<CameraFatigueData | null>(null);
 
   useEffect(() => {
     setSessionId(sessionStorage.getItem("jolly_session") || "");
@@ -60,6 +62,13 @@ export default function SummaryPage() {
           self_reported_notes: rawMed,
         });
       }
+    }
+
+    const rawCF = sessionStorage.getItem("jolly_camera_fatigue");
+    if (rawCF) {
+      try {
+        setCameraFatigue(JSON.parse(rawCF));
+      } catch {}
     }
   }, []);
 
@@ -368,6 +377,28 @@ export default function SummaryPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Camera Fatigue Sensor Telemetry */}
+                  {(cameraFatigue || stressIndex.camera_fatigue) && (
+                    <div className="p-2.5 rounded-xl bg-bg-canvas border border-primary-container/30 sm:col-span-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary-container text-[18px]">
+                          videocam
+                        </span>
+                        <div>
+                          <span className="font-label-sm font-semibold text-text-primary block text-xs">
+                            Camera Fatigue Sensor Recorded
+                          </span>
+                          <span className="text-[11px] text-text-secondary">
+                            Blinks: {(cameraFatigue || stressIndex.camera_fatigue)?.blinks_per_min} bpm • {(cameraFatigue || stressIndex.camera_fatigue)?.status_message}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-primary-container/15 text-primary-container">
+                        {(cameraFatigue || stressIndex.camera_fatigue)?.score}% ({(cameraFatigue || stressIndex.camera_fatigue)?.level_label})
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

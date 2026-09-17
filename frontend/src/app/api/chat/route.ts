@@ -15,6 +15,15 @@ interface ChatRequest {
   mode?: string;
   age_group?: string;
   medical_history?: string;
+  camera_fatigue?: {
+    score: number;
+    level: string;
+    level_label?: string;
+    blinks_per_min?: number;
+    eyelid_droop?: string;
+    motion_stability?: string;
+    status_message?: string;
+  };
 }
 
 const CRISIS_KEYWORDS = [
@@ -49,7 +58,12 @@ const RETALIATION_KEYWORDS = ["retaliat", "threat", "fir", "police", "complaint"
 const IDENTITY_KEYWORDS = ["caste", "slur", "dalit", "tribal", "community", "untouchab", "atrocity", "discrimina", "humiliat", "sc/st"];
 const ACUTE_KEYWORDS = ["just happened", "today", "yesterday", "sudden", "shock", "attacked", "assault", "terrified", "shaking", "panic"];
 
-function calculateStressIndex(text: string, ageGroup?: string, medicalNotes?: string) {
+function calculateStressIndex(
+  text: string,
+  ageGroup?: string,
+  medicalNotes?: string,
+  cameraFatigue?: { score: number; level: string; level_label?: string; blinks_per_min?: number }
+) {
   const lower = (text + " " + (medicalNotes || "")).toLowerCase();
 
   // 1. Emotional Strain (0-100)
@@ -66,7 +80,12 @@ function calculateStressIndex(text: string, ageGroup?: string, medicalNotes?: st
   const somaticMatches = ["sleep", "insomnia", "tired", "exhaust", "headache", "stomach", "eating", "appetite", "heart", "chest", "breath", "dizzi", "nausea", "pain"]
     .filter((w) => lower.includes(w)).length;
   const hasMedical = Boolean(medicalNotes && medicalNotes.trim().length > 3);
-  const somaticLoad = Math.min(100, (hasMedical ? 35 : 20) + somaticMatches * 16);
+  let somaticLoad = Math.min(100, (hasMedical ? 35 : 20) + somaticMatches * 16);
+
+  // Calibrate with live camera fatigue sensor if available
+  if (cameraFatigue && typeof cameraFatigue.score === "number") {
+    somaticLoad = Math.min(100, Math.round(somaticLoad * 0.45 + cameraFatigue.score * 0.55));
+  }
 
   // 4. Relational / Social Isolation (0-100)
   const relationalMatches = ["alone", "nobody", "no one", "isolated", "hide", "ashamed", "first time", "secret", "abandon"]
@@ -109,6 +128,7 @@ function calculateStressIndex(text: string, ageGroup?: string, medicalNotes?: st
     somatic_load: somaticLoad,
     relational_isolation: relationalIsolation,
     environmental_risk: environmentalRisk,
+    camera_fatigue: cameraFatigue,
   };
 }
 
@@ -177,6 +197,7 @@ export async function POST(request: Request) {
     const currentQid = payload.question_id || "Q01_SAFETY";
     const ageGroup = payload.age_group || "";
     const medicalHistory = payload.medical_history || "";
+    const cameraFatigue = payload.camera_fatigue;
     const lower = userText.toLowerCase();
 
     // 1. Initial Greeting / Phase Start (Inquires Age Group & Safe Space)
@@ -246,7 +267,7 @@ export async function POST(request: Request) {
           voice_signal_status: "available",
           disclaimer: "Support & triage guidance only — not a clinical diagnosis.",
           crisis_mode: true,
-          stress_index: calculateStressIndex(userText, ageGroup, medicalHistory),
+          stress_index: calculateStressIndex(userText, ageGroup, medicalHistory, cameraFatigue),
           trauma_typology: identifyTraumaTypology(userText, 95),
         },
         draft_summary: `Safety crisis noted: User expressed critical distress. Reassurance and emergency helplines (14416, 112, 14566, https://nhaa.gov.in) provided.`,
@@ -410,7 +431,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const stressIndex = calculateStressIndex(userText, ageGroup, medicalHistory);
+    const stressIndex = calculateStressIndex(userText, ageGroup, medicalHistory, cameraFatigue);
     const traumaTypology = identifyTraumaTypology(userText, stressIndex.overall_score);
 
     return NextResponse.json({
@@ -429,6 +450,9 @@ export async function POST(request: Request) {
           `Emotional Strain: ${stressIndex.emotional_strain}/100`,
           `Somatic Load: ${stressIndex.somatic_load}/100`,
           `Environmental & Safety Risk: ${stressIndex.environmental_risk}/100`,
+          ...(cameraFatigue && cameraFatigue.score >= 45
+            ? [`Ocular & somatic fatigue detected via camera sensor: ${cameraFatigue.score}% (${cameraFatigue.level_label || cameraFatigue.level})`]
+            : []),
         ],
         recommended_action:
           "Confidential guidance, psychosocial listening, and optional NHAA reporting (Helpline: 14566 | Portal: https://nhaa.gov.in).",

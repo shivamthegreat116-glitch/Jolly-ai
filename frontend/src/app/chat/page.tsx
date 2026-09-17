@@ -16,6 +16,7 @@ import {
   stopSpeaking,
   type VoiceFeatures,
 } from "@/lib/voice";
+import { FatigueCameraWidget } from "@/components/FatigueCameraWidget";
 import type {
   SessionState,
   AiRequestState,
@@ -23,6 +24,7 @@ import type {
   CameraState,
   VideoCallState,
   InteractionObject,
+  CameraFatigueData,
 } from "@/types/session";
 
 type Msg = { role: "user" | "assistant"; text: string; time?: string; failed?: boolean };
@@ -79,6 +81,7 @@ export default function ChatPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const [liveFatigue, setLiveFatigue] = useState<CameraFatigueData | null>(null);
 
   // Save & End Chat state
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -449,6 +452,7 @@ export default function ChatPage() {
             mode: conversationMode,
             age_group: ageGroup || sessionStorage.getItem("jolly_age_group") || undefined,
             medical_history: medicalHistory || sessionStorage.getItem("jolly_medical_history") || undefined,
+            camera_fatigue: liveFatigue || undefined,
           }),
         });
       } catch {
@@ -1105,53 +1109,6 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Floating Camera Vision HUD (Uses callback ref to avoid DOM race conditions) */}
-          {cameraState === "active" && (
-            <div className="overflow-hidden rounded-2xl border border-border-subtle bg-text-primary p-3.5 text-white shadow-md animate-fade-in">
-              <div className="flex items-center justify-between pb-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-secondary-container opacity-75"></span>
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-secondary"></span>
-                  </span>
-                  <span className="font-label-sm text-label-sm font-semibold tracking-wider text-secondary-container uppercase">
-                    Live Video & Camera Connected
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void flipCamera()}
-                    className="rounded-lg bg-surface-crisp/10 px-2.5 py-1 text-label-sm font-label-sm text-white hover:bg-surface-crisp/20 active:scale-95"
-                    title="Flip camera"
-                  >
-                    🔄 Flip
-                  </button>
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="rounded-lg bg-surface-crisp/10 px-2.5 py-1 text-label-sm font-label-sm text-safety-emergency hover:bg-safety-emergency/20"
-                    title="Close camera"
-                  >
-                    ✖ Close
-                  </button>
-                </div>
-              </div>
-              <div className="relative aspect-video max-h-56 w-full overflow-hidden rounded-xl bg-black">
-                <video
-                  ref={setVideoRef}
-                  playsInline
-                  autoPlay
-                  muted
-                  className="h-full w-full object-cover"
-                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
-                />
-                <div className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white backdrop-blur-xs">
-                  AI Vision Active
-                </div>
-              </div>
-            </div>
-          )}
           <canvas ref={canvasRef} className="hidden" />
 
           {/* Chat Stream Canvas */}
@@ -1737,6 +1694,18 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating Bottom-Left Fatigue Sensor Camera HUD */}
+      {cameraState === "active" && (
+        <FatigueCameraWidget
+          stream={cameraStreamRef.current}
+          facingMode={facingMode}
+          onClose={stopCamera}
+          onFlip={() => void flipCamera()}
+          onFatigueUpdate={(data) => setLiveFatigue(data)}
+          setVideoRef={setVideoRef}
+        />
       )}
 
       {/* Floating Micro-Toast Feedback */}
