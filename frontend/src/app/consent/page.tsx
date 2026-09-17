@@ -20,6 +20,7 @@ const LANGUAGES = [
 export default function ConsentPage() {
   const router = useRouter();
   const [language, setLanguage] = useState("en");
+  const [ageGroup, setAgeGroup] = useState("18_24");
   const [mode, setMode] = useState("text");
   const [agreeText, setAgreeText] = useState(true); // default true so user can start easily
   const [voiceOptIn, setVoiceOptIn] = useState(false);
@@ -33,6 +34,8 @@ export default function ConsentPage() {
     if (typeof window !== "undefined") {
       const stored = sessionStorage.getItem("jolly_lang");
       if (stored) setLanguage(stored);
+      const storedAge = sessionStorage.getItem("jolly_age_group");
+      if (storedAge) setAgeGroup(storedAge);
     }
   }, []);
 
@@ -44,6 +47,7 @@ export default function ConsentPage() {
         method: "POST",
         body: JSON.stringify({
           language,
+          age_group: ageGroup,
           interaction_mode: mode,
           consent_text: agreeText,
           consent_voice: voiceOptIn,
@@ -54,6 +58,7 @@ export default function ConsentPage() {
       });
       sessionStorage.setItem("jolly_session", r.session_id);
       sessionStorage.setItem("jolly_lang", language);
+      sessionStorage.setItem("jolly_age_group", ageGroup);
       sessionStorage.setItem("jolly_voice", voiceOptIn ? "1" : "0");
       sessionStorage.setItem("jolly_storage", storageOptIn ? "1" : "0");
       sessionStorage.setItem("jolly_mode", mode);
@@ -204,6 +209,30 @@ export default function ConsentPage() {
 
             <div>
               <label className="font-label-lg text-label-lg text-text-primary font-semibold block mb-1.5">
+                Who is using Jolly AI today? (Age Group)
+              </label>
+              <p className="font-body-sm text-body-sm text-text-secondary mb-2">
+                Helps us attune trauma-informed care and age-appropriate legal protections.
+              </p>
+              <select
+                className="w-full rounded-xl border border-border-subtle bg-bg-canvas p-3 font-body-md text-body-md text-text-primary focus:border-primary focus:outline-none"
+                value={ageGroup}
+                onChange={(e) => {
+                  setAgeGroup(e.target.value);
+                  sessionStorage.setItem("jolly_age_group", e.target.value);
+                }}
+              >
+                <option value="under_18">Under 18 (Minor / Youth — Protected intake)</option>
+                <option value="18_24">18–24 (Young Adult)</option>
+                <option value="25_40">25–40 (Adult)</option>
+                <option value="41_60">41–60 (Mature Adult)</option>
+                <option value="60_plus">60+ (Senior Citizen)</option>
+                <option value="prefer_not_to_say">Prefer not to say</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="font-label-lg text-label-lg text-text-primary font-semibold block mb-1.5">
                 How would you like to talk?
               </label>
               <select
@@ -317,7 +346,7 @@ export default function ConsentPage() {
             <div className="flex-1 min-w-0">
               <h3 className="font-label-md text-label-md font-semibold text-safety-emergency">Need immediate protection?</h3>
               <p className="font-body-sm text-body-sm text-text-secondary mt-0.5">
-                Dial <a href="tel:14566" className="font-semibold text-safety-emergency underline">14566</a> (NHAA 24/7) or <a href="tel:112" className="font-semibold text-safety-emergency underline">112</a> (Emergency).
+                Dial <a href="tel:14566" className="font-semibold text-safety-emergency underline">14566</a> (NHAA 24/7) or <a href="tel:112" className="font-semibold text-safety-emergency underline">112</a> (Emergency). Access the official <a href="https://nhaa.gov.in" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">NHAA Digital Portal</a>.
               </p>
             </div>
           </div>

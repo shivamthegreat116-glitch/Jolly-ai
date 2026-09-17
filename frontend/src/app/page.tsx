@@ -55,13 +55,24 @@ export default function LandingPage() {
                 If you or someone is in immediate danger, dial <strong className="font-semibold">14566</strong> or <strong className="font-semibold">112</strong>
               </p>
             </div>
-            <a
-              className="shrink-0 inline-flex items-center gap-1 text-safety-emergency font-label-sm text-label-sm font-semibold pl-2 hover:opacity-80 transition-opacity"
-              href="tel:14566"
-            >
-              <span>Call 14566</span>
-              <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-            </a>
+            <div className="shrink-0 flex items-center gap-3">
+              <a
+                className="inline-flex items-center gap-1 text-safety-emergency font-label-sm text-label-sm font-semibold hover:opacity-80 transition-opacity"
+                href="https://nhaa.gov.in"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span>NHAA Portal</span>
+                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              </a>
+              <a
+                className="inline-flex items-center gap-1 text-safety-emergency font-label-sm text-label-sm font-semibold hover:opacity-80 transition-opacity"
+                href="tel:14566"
+              >
+                <span>Call 14566</span>
+                <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+              </a>
+            </div>
           </div>
         </aside>
 
@@ -178,14 +189,25 @@ export default function LandingPage() {
               <span>{howItWorksOpen ? "Hide steps" : "How it works"}</span>
             </button>
 
-            {/* Low-Alarm Crisis Access */}
-            <a
-              className="w-full min-h-[46px] rounded-xl bg-safety-emergency-subtle text-safety-emergency px-4 flex items-center justify-center gap-2 transition-opacity hover:opacity-90 active:scale-[0.99] font-label-md text-label-md font-medium border border-safety-emergency/20"
-              href="tel:14566"
-            >
-              <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
-              <span>Emergency help (14566 direct dial)</span>
-            </a>
+            {/* Low-Alarm Crisis Access (Dial & Digital Portal) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              <a
+                className="w-full min-h-[46px] rounded-xl bg-safety-emergency-subtle text-safety-emergency px-3 flex items-center justify-center gap-2 transition-opacity hover:opacity-90 active:scale-[0.99] font-label-md text-label-md font-medium border border-safety-emergency/20"
+                href="tel:14566"
+              >
+                <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
+                <span>Call NHAA (14566)</span>
+              </a>
+              <a
+                className="w-full min-h-[46px] rounded-xl bg-surface-crisp text-primary px-3 flex items-center justify-center gap-2 transition-opacity hover:bg-bg-subtle active:scale-[0.99] font-label-md text-label-md font-medium border border-border-subtle shadow-2xs"
+                href="https://nhaa.gov.in"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="material-symbols-outlined text-[18px]">language</span>
+                <span>NHAA Digital Portal</span>
+              </a>
+            </div>
           </div>
 
           {/* Safe Pace Human Reassurance Note */}

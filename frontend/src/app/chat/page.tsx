@@ -86,6 +86,10 @@ export default function ChatPage() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Triage demographic & health context
+  const [ageGroup, setAgeGroup] = useState<string>("");
+  const [medicalHistory, setMedicalHistory] = useState<string>("");
+
   // Grounding Tool overlay
   const [showGrounding, setShowGrounding] = useState(false);
 
@@ -153,6 +157,10 @@ export default function ChatPage() {
     const storedLang = (sessionStorage.getItem("jolly_lang") as Lang) || "en";
     setLang(storedLang);
     setVoiceOn(sessionStorage.getItem("jolly_voice") === "1");
+    const storedAge = sessionStorage.getItem("jolly_age_group") || "";
+    setAgeGroup(storedAge);
+    const storedMed = sessionStorage.getItem("jolly_medical_history") || "";
+    setMedicalHistory(storedMed);
 
     // Check browser SpeechRecognition support
     if (typeof window !== "undefined") {
@@ -216,7 +224,12 @@ export default function ChatPage() {
         next_question_id?: string;
       }>("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ session_id: sid, message: "", phase: "start" }),
+        body: JSON.stringify({
+          session_id: sid,
+          message: "",
+          phase: "start",
+          age_group: sessionStorage.getItem("jolly_age_group") || undefined,
+        }),
       });
       const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       setMessages([{ role: "assistant", text: r.reply, time: now }]);
@@ -414,7 +427,8 @@ export default function ChatPage() {
           next_question_id?: string | null;
           interpretation?: unknown;
           crisis_mode: boolean;
-          assessment: unknown;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          assessment: any;
           draft_summary: string;
           voice_signal_status: string;
           conversation_mode?: string;
@@ -433,9 +447,11 @@ export default function ChatPage() {
             voice: interactionPayload.audio_metadata || undefined,
             image_base64: interactionPayload.camera_frame || undefined,
             mode: conversationMode,
+            age_group: ageGroup || sessionStorage.getItem("jolly_age_group") || undefined,
+            medical_history: medicalHistory || sessionStorage.getItem("jolly_medical_history") || undefined,
           }),
         });
-      } catch (err) {
+      } catch {
         if (attempts < maxAttempts) {
           setAiRequestState("retrying");
           await new Promise((res) => setTimeout(res, 1200));
@@ -478,6 +494,12 @@ export default function ChatPage() {
     // Assessment persistence (Never forcibly redirect the user!)
     if (responseData.assessment) {
       sessionStorage.setItem("jolly_assessment", JSON.stringify(responseData.assessment));
+      if (responseData.assessment.stress_index) {
+        sessionStorage.setItem("jolly_stress_index", JSON.stringify(responseData.assessment.stress_index));
+      }
+      if (responseData.assessment.trauma_typology) {
+        sessionStorage.setItem("jolly_trauma_typology", JSON.stringify(responseData.assessment.trauma_typology));
+      }
     }
     if (responseData.draft_summary) {
       sessionStorage.setItem("jolly_summary", responseData.draft_summary);
@@ -1004,7 +1026,7 @@ export default function ChatPage() {
                 Your safety comes first. Confidential, professional help is standing by right now:
               </p>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
                 <a
                   href="tel:14416"
                   className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
@@ -1025,6 +1047,15 @@ export default function ChatPage() {
                 >
                   <span className="font-label-md text-label-md font-bold text-primary">🏛️ 14566</span>
                   <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">NHAA Helpline</span>
+                </a>
+                <a
+                  href="https://nhaa.gov.in"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-col items-center justify-center rounded-xl bg-surface-crisp border border-border-subtle p-2.5 text-center shadow-2xs hover:bg-bg-subtle active:scale-95 transition"
+                >
+                  <span className="font-label-md text-label-md font-bold text-primary">🌐 nhaa.gov.in</span>
+                  <span className="font-label-sm text-label-sm text-text-secondary mt-0.5">Digital Portal</span>
                 </a>
                 <a
                   href="tel:18005990019"
@@ -1223,6 +1254,68 @@ export default function ChatPage() {
             <div ref={chatBottomRef} />
           </div>
 
+          {/* Dynamic Intake & Context Selection Chips */}
+          {(!ageGroup || phase === "safety" || currentQuestionId === "Q01_AGE_SAFETY") && (
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
+              <span className="font-label-sm text-label-sm font-semibold text-primary px-2 shrink-0 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[16px]">badge</span>
+                <span>Your age group:</span>
+              </span>
+              {[
+                { id: "under_18", label: "👶 Under 18 (Youth)" },
+                { id: "18_24", label: "🌱 18–24 (Young Adult)" },
+                { id: "25_40", label: "🌿 25–40 (Adult)" },
+                { id: "41_60", label: "🌳 41–60 (Mature)" },
+                { id: "60_plus", label: "🍂 60+ (Senior)" },
+                { id: "prefer_not_to_say", label: "🔒 Prefer not to say" },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setAgeGroup(item.id);
+                    sessionStorage.setItem("jolly_age_group", item.id);
+                    void send(`I am in the ${item.label.replace(/[👶🌱🌿🌳🍂🔒]/g, "").trim()} age group.`);
+                  }}
+                  disabled={aiRequestState === "processing"}
+                  className="shrink-0 px-3 py-1 rounded-full bg-surface-crisp border border-border-subtle font-label-sm text-label-sm text-text-primary hover:bg-surface-container transition active:scale-95 shadow-2xs disabled:opacity-40"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(phase === "impact_medical" || currentQuestionId === "Q05_IMPACT_MEDICAL") && (
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
+              <span className="font-label-sm text-label-sm font-semibold text-primary px-2 shrink-0 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[16px]">medical_services</span>
+                <span>Health context:</span>
+              </span>
+              {[
+                { text: "No relevant physical health conditions", label: "🩺 No physical conditions" },
+                { text: "I have chronic pain and exhaustion heightened by this stress", label: "💊 Chronic pain/fatigue" },
+                { text: "I have experienced physical injury from this situation", label: "🩹 Recent injury" },
+                { text: "I am receiving ongoing psychological support or medication", label: "🧠 Psychological support" },
+                { text: "I prefer to keep my medical details private", label: "🔒 Keep private" },
+              ].map((item, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setMedicalHistory(item.text);
+                    sessionStorage.setItem("jolly_medical_history", item.text);
+                    void send(item.text);
+                  }}
+                  disabled={aiRequestState === "processing"}
+                  className="shrink-0 px-3 py-1 rounded-full bg-surface-crisp border border-border-subtle font-label-sm text-label-sm text-text-primary hover:bg-surface-container transition active:scale-95 shadow-2xs disabled:opacity-40"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Quick Comforting Prompt Chips */}
           <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar select-none">
             <button
@@ -1314,7 +1407,7 @@ export default function ChatPage() {
 
           <div className="text-center pb-2">
             <p className="font-label-sm text-label-sm text-text-secondary">
-              NHAA Helpline 14566 is available 24/7. Your conversations are anonymous.
+              NHAA Helpline <a href="tel:14566" className="underline font-semibold text-primary">14566</a> (24/7 Toll-free) · Official <a href="https://nhaa.gov.in" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-primary">Digital Portal (nhaa.gov.in)</a>. Your conversations are anonymous.
             </p>
           </div>
         </div>

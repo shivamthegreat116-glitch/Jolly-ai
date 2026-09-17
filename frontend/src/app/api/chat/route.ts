@@ -13,6 +13,8 @@ interface ChatRequest {
   question_id?: string;
   clarification_count?: number;
   mode?: string;
+  age_group?: string;
+  medical_history?: string;
 }
 
 const CRISIS_KEYWORDS = [
@@ -40,6 +42,131 @@ const LISTENING_KEYWORDS = [
   "talk for a while",
 ];
 
+// Trauma analysis keyword categories
+const DOMESTIC_KEYWORDS = ["husband", "wife", "partner", "home", "family", "in-laws", "relative", "beating", "domestic", "dowry", "slapped", "abusive relationship"];
+const WORKPLACE_KEYWORDS = ["boss", "manager", "coworker", "workplace", "office", "fired", "job", "salary", "promotion", "colleague", "posh", "hr"];
+const RETALIATION_KEYWORDS = ["retaliat", "threat", "fir", "police", "complaint", "revenge", "warned me", "kill me", "blackmail", "destroy"];
+const IDENTITY_KEYWORDS = ["caste", "slur", "dalit", "tribal", "community", "untouchab", "atrocity", "discrimina", "humiliat", "sc/st"];
+const ACUTE_KEYWORDS = ["just happened", "today", "yesterday", "sudden", "shock", "attacked", "assault", "terrified", "shaking", "panic"];
+
+function calculateStressIndex(text: string, ageGroup?: string, medicalNotes?: string) {
+  const lower = (text + " " + (medicalNotes || "")).toLowerCase();
+
+  // 1. Emotional Strain (0-100)
+  const emotionalMatches = ["fear", "scared", "sad", "cry", "crying", "depressed", "hopeless", "helpless", "anxious", "anxiety", "pain", "broken", "terrif"]
+    .filter((w) => lower.includes(w)).length;
+  const emotionalStrain = Math.min(100, 30 + emotionalMatches * 15);
+
+  // 2. Cognitive Overwhelm (0-100)
+  const cognitiveMatches = ["confus", "overwhelm", "racing", "cannot think", "can't focus", "numb", "flashback", "nightmare", "freeze", "blank"]
+    .filter((w) => lower.includes(w)).length;
+  const cognitiveStrain = Math.min(100, 25 + cognitiveMatches * 18);
+
+  // 3. Somatic / Physiological Load (0-100)
+  const somaticMatches = ["sleep", "insomnia", "tired", "exhaust", "headache", "stomach", "eating", "appetite", "heart", "chest", "breath", "dizzi", "nausea", "pain"]
+    .filter((w) => lower.includes(w)).length;
+  const hasMedical = Boolean(medicalNotes && medicalNotes.trim().length > 3);
+  const somaticLoad = Math.min(100, (hasMedical ? 35 : 20) + somaticMatches * 16);
+
+  // 4. Relational / Social Isolation (0-100)
+  const relationalMatches = ["alone", "nobody", "no one", "isolated", "hide", "ashamed", "first time", "secret", "abandon"]
+    .filter((w) => lower.includes(w)).length;
+  const relationalIsolation = Math.min(100, 25 + relationalMatches * 20);
+
+  // 5. Environmental & Safety Risk (0-100)
+  const safetyMatches = ["retaliat", "threat", "unsafe", "danger", "watching", "stalk", "violence", "kill", "harm", "door", "follow"]
+    .filter((w) => lower.includes(w)).length;
+  const environmentalRisk = Math.min(100, 20 + safetyMatches * 22);
+
+  // Age group vulnerability factor
+  let ageWeight = 0;
+  if (ageGroup === "under_18" || ageGroup === "60_plus") {
+    ageWeight = 5;
+  }
+
+  const overall = Math.min(
+    100,
+    Math.round(
+      emotionalStrain * 0.25 +
+      cognitiveStrain * 0.20 +
+      somaticLoad * 0.20 +
+      relationalIsolation * 0.15 +
+      environmentalRisk * 0.20 +
+      ageWeight
+    )
+  );
+
+  let category: "Low Strain" | "Moderate Strain" | "High Strain" | "Severe Crisis Strain" = "Low Strain";
+  if (overall >= 80) category = "Severe Crisis Strain";
+  else if (overall >= 60) category = "High Strain";
+  else if (overall >= 30) category = "Moderate Strain";
+
+  return {
+    overall_score: overall,
+    risk_category: category,
+    emotional_strain: emotionalStrain,
+    cognitive_strain: cognitiveStrain,
+    somatic_load: somaticLoad,
+    relational_isolation: relationalIsolation,
+    environmental_risk: environmentalRisk,
+  };
+}
+
+function identifyTraumaTypology(text: string, stressScore: number) {
+  const lower = text.toLowerCase();
+  let name = "Cumulative Emotional Strain & Situational Distress";
+  let category = "Situational Stress Profile";
+  let description = "Persistent psychological strain resulting from compounded personal distress, requiring supportive emotional grounding and triage.";
+  const quotes: string[] = [];
+
+  if (DOMESTIC_KEYWORDS.some((kw) => lower.includes(kw))) {
+    name = "Interpersonal & Domestic Violence Trauma";
+    category = "Relational & Household Safety";
+    description = "Reported indicators associated with physical, verbal, or emotional coercion and distress within a domestic or intimate relationship.";
+  } else if (WORKPLACE_KEYWORDS.some((kw) => lower.includes(kw))) {
+    name = "Workplace & Institutional Harassment Trauma";
+    category = "Occupational & Institutional Triage";
+    description = "Reported indicators resulting from power asymmetry, professional retaliation, systemic hostility, or workplace intimidation.";
+  } else if (RETALIATION_KEYWORDS.some((kw) => lower.includes(kw))) {
+    name = "Retaliatory Harassment & Coercion Trauma";
+    category = "Safety & Protective Triage";
+    description = "Acute distress driven by fear of retribution, intimidation, or secondary harm following grievance filing or whistleblowing.";
+  } else if (IDENTITY_KEYWORDS.some((kw) => lower.includes(kw))) {
+    name = "Identity-Based Atrocity & Discrimination Trauma";
+    category = "Atrocity & Human Rights Protections";
+    description = "Psychological and social trauma stemming from identity-based discrimination, caste atrocities, or community marginalization under statutory protection scopes.";
+  } else if (ACUTE_KEYWORDS.some((kw) => lower.includes(kw))) {
+    name = "Acute Situational Trauma / Shock";
+    category = "Acute Psychological Stabilization";
+    description = "Immediate shock, nervous system hyperarousal, and disorientation following a sudden, distressing violation.";
+  }
+
+  const sentences = text.split(/[.!?\n]+/).map((s) => s.trim()).filter((s) => s.length > 5);
+  for (const s of sentences.slice(0, 3)) {
+    quotes.push(`"${s}"`);
+  }
+
+  let severity: "Mild" | "Moderate" | "Severe" | "Acute / Crisis" = "Moderate";
+  if (stressScore >= 80) severity = "Acute / Crisis";
+  else if (stressScore >= 60) severity = "Severe";
+  else if (stressScore < 30) severity = "Mild";
+
+  return {
+    name,
+    category,
+    description,
+    severity,
+    evidence_quotes: quotes,
+    recommended_interventions: [
+      "Trauma-informed somatic grounding & emotional validation",
+      "Confidential NHAA (14566) and National Portal (https://nhaa.gov.in) guidance",
+      "Optional 1-on-1 human counselor consultation via Jitsi video bridge",
+      "Local legal aid & protective shelter coordination if requested",
+    ],
+    disclaimer: "Identified strictly from reported situational and behavioral indicators to assist triage and counselor preparation. This is NOT a medical or psychiatric diagnosis.",
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const payload: ChatRequest = await request.json();
@@ -48,20 +175,23 @@ export async function POST(request: Request) {
     const userText = (payload.transcript_override || payload.message || "").trim();
     const phase = payload.phase || "start";
     const currentQid = payload.question_id || "Q01_SAFETY";
+    const ageGroup = payload.age_group || "";
+    const medicalHistory = payload.medical_history || "";
     const lower = userText.toLowerCase();
 
-    // 1. Initial Greeting / Phase Start
+    // 1. Initial Greeting / Phase Start (Inquires Age Group & Safe Space)
     if (phase === "start" && !userText) {
       return NextResponse.json({
         interaction_id: interactionId,
         reply:
           "Hello! 👋 I am Jolly AI, here to listen and help you find support at your own pace. " +
-          "(Note: I am a support and triage tool, not a medical or emergency service 🛡️). " +
+          "(Note: I am an emotional support and triage tool, not a medical or emergency service 🛡️). " +
           "Feel free to skip anything you don't wish to share. 💙\n\n" +
-          "First, are you in a safe place right now? 🛡️",
+          "To ensure our conversation is safe and attuned to your needs, could you share who is speaking with me today and your approximate age group? " +
+          "Also, are you in a safe, private space right now?",
         next_phase: "safety",
-        question_id: "Q01_SAFETY",
-        next_question_id: "Q01_SAFETY",
+        question_id: "Q01_AGE_SAFETY",
+        next_question_id: "Q01_AGE_SAFETY",
         interpretation: null,
         citations: [],
         assessment: null,
@@ -71,13 +201,18 @@ export async function POST(request: Request) {
         voice_signal_status: "available",
         conversation_mode: "assessment",
         crisis_level: "none",
-        resources: null,
+        resources: {
+          nhaa_helpline: "14566",
+          nhaa_portal: "https://nhaa.gov.in",
+          tele_manas: "14416",
+          emergency: "112",
+        },
         escalation_event_id: null,
         video_room_url: null,
       });
     }
 
-    // 2. High-Severity Crisis Check
+    // 2. High-Severity Crisis Check (Always includes 14566 & https://nhaa.gov.in)
     const isCrisis = CRISIS_KEYWORDS.some((kw) => lower.includes(kw));
     if (isCrisis) {
       const roomToken = crypto.randomBytes(4).toString("hex");
@@ -87,11 +222,12 @@ export async function POST(request: Request) {
         interaction_id: interactionId,
         reply:
           "I hear how painful and difficult things are right now, and I want you to be safe. 💙 Please know that you are not alone.\n\n" +
-          "Free, confidential help is available right now:\n" +
+          "Free, confidential help and official protection are standing by right now:\n" +
           "• Tele-MANAS (Mental Health): 14416 or 1800-891-4416\n" +
           "• National Emergency Services: 112\n" +
-          "• KIRAN Psychosocial Support: 1800-599-0019\n" +
-          "• NHAA Helpline: 14566\n\n" +
+          "• National Helpline Against Atrocities (NHAA): 14566\n" +
+          "• NHAA Official Digital Portal: https://nhaa.gov.in\n" +
+          "• KIRAN Psychosocial Support: 1800-599-0019\n\n" +
           "Are you in a safe place right now, or is there someone nearby who can stay with you?",
         next_phase: "crisis",
         conversation_mode: "crisis_support",
@@ -102,16 +238,18 @@ export async function POST(request: Request) {
         citations: [],
         assessment: {
           svi_score: 95,
-          risk_category: "Immediate Safety Concern",
+          risk_category: "Severe Crisis Strain",
           confidence: "high",
           risk_reasons: ["Self-harm or severe crisis indicators detected in conversation"],
-          recommended_action: "Immediate connection with Tele-MANAS (14416) or emergency counselor.",
+          recommended_action: "Immediate connection with Tele-MANAS (14416), Emergency (112), or NHAA (14566 / https://nhaa.gov.in).",
           human_review_recommended: true,
           voice_signal_status: "available",
           disclaimer: "Support & triage guidance only — not a clinical diagnosis.",
           crisis_mode: true,
+          stress_index: calculateStressIndex(userText, ageGroup, medicalHistory),
+          trauma_typology: identifyTraumaTypology(userText, 95),
         },
-        draft_summary: `Safety crisis noted: User expressed critical distress. Reassurance and emergency helplines (14416 / 112) provided.`,
+        draft_summary: `Safety crisis noted: User expressed critical distress. Reassurance and emergency helplines (14416, 112, 14566, https://nhaa.gov.in) provided.`,
         crisis_mode: true,
         voice_signal_status: "available",
         video_room_url: videoRoomUrl,
@@ -149,17 +287,17 @@ export async function POST(request: Request) {
     let baseReply = "";
     let draftSummary = `User input: ${userText}`;
 
-    if (phase === "safety" || currentQid === "Q01_SAFETY") {
+    if (phase === "safety" || currentQid === "Q01_AGE_SAFETY" || currentQid === "Q01_SAFETY") {
       nextPhase = "need";
       nextQid = "Q02_SUPPORT_NEED";
       baseReply =
         "Thank you for letting me know. 💙 How can I best support you today?\n" +
-        "• Emotional support 💬\n" +
-        "• Legal guidance ⚖️\n" +
-        "• Medical help 🏥\n" +
-        "• Complaint pathway (NHAA 14566) 📋\n\n" +
-        "Feel free to select an option or explain in your own words.";
-      draftSummary = `Safety check completed. Status noted. Proceeding to identify complainant support needs.`;
+        "• Emotional support & active listening 💬\n" +
+        "• Legal & rights guidance ⚖️\n" +
+        "• Medical / physical health support 🏥\n" +
+        "• Official complaint pathway (NHAA Helpline 14566 & https://nhaa.gov.in) 📋\n\n" +
+        "Feel free to select an option or share in your own words.";
+      draftSummary = `Safety and age context established. Proceeding to explore primary support needs.`;
     } else if (phase === "need" || currentQid === "Q02_SUPPORT_NEED") {
       nextPhase = "incident";
       nextQid = "Q03_INCIDENT_CONTEXT";
@@ -170,21 +308,24 @@ export async function POST(request: Request) {
       nextPhase = "frequency";
       nextQid = "Q04_RECENCY_FREQUENCY";
       baseReply =
-        "Thank you for sharing that with me. 💙 Has this happened recently, or is this an ongoing situation you have been dealing with?";
-      draftSummary = `Context discussed. Reviewing recency and pattern of the situation.`;
+        "Thank you for sharing that with me. 💙 Has this happened recently, or is this an ongoing situation you have been dealing with? Do you have fears of retaliation?";
+      draftSummary = `Incident background shared. Reviewing recency, frequency, and retaliation factors.`;
     } else if (phase === "frequency" || currentQid === "Q04_RECENCY_FREQUENCY") {
-      nextPhase = "impact";
-      nextQid = "Q05_IMPACT_COPING";
+      // Sensitive inquiry into physical impact AND medical history
+      nextPhase = "impact_medical";
+      nextQid = "Q05_IMPACT_MEDICAL";
       baseReply =
-        "I hear you. How has this been impacting you emotionally, physically, or in your daily routine? Do you have anyone supportive around you right now?";
-      draftSummary = `Recency recorded. Assessing personal impact and coping resources.`;
-    } else if (phase === "impact" || currentQid === "Q05_IMPACT_COPING") {
+        "I hear you. How has this been impacting you emotionally, physically, or in your daily routine? " +
+        "Also, if you feel comfortable sharing, do you have any relevant medical conditions, ongoing medications, or physical health factors that might be interacting with your stress right now? (This is completely optional and safe to skip).";
+      draftSummary = `Recency recorded. Inquiring into personal impact, somatic symptoms, and medical history context.`;
+    } else if (phase === "impact_medical" || currentQid === "Q05_IMPACT_MEDICAL" || currentQid === "Q05_IMPACT_COPING") {
       nextPhase = "ongoing_support";
       nextQid = null;
       baseReply =
-        "Thank you for trusting me and sharing your experience. 🙏 You have handled a great deal. " +
-        "Your initial check-in is complete, but I am here with you for as long as you wish to talk. What else would you like to share?";
-      draftSummary = `Assessment turns completed. Complainant reviewed coping impact. Ready for ongoing support and summary review.`;
+        "Thank you for trusting me and sharing your experience. 🙏 You have carried a great deal. " +
+        "Your initial check-in is complete, and your comprehensive stress assessment is prepared. " +
+        "I am here with you for as long as you wish to talk. What else would you like to share?";
+      draftSummary = `Assessment turns completed. Complainant reviewed medical context and coping impact. Ready for ongoing support and summary review.`;
     } else {
       // Ongoing open emotional support mode - never forcibly ends!
       nextPhase = "ongoing_support";
@@ -208,9 +349,10 @@ export async function POST(request: Request) {
     if (apiKey && userText.length > 2) {
       try {
         const systemPrompt =
-          "You are Jolly AI, an empathetic, trauma-informed support and triage companion for complainants accessing the National Helpline Against Atrocities (NHAA 14566) in India. " +
+          "You are Jolly AI, an empathetic, trauma-informed support and triage companion for complainants accessing the National Helpline Against Atrocities (NHAA 14566 & https://nhaa.gov.in) in India. " +
           "Provide genuine emotional validation, warmth, and active listening. " +
           "Never give unsolicited pushy advice or checklists when the user expresses sadness or grief. " +
+          "If the user mentions medical history or physical symptoms, acknowledge how trauma impacts the body compassionately. " +
           "Keep your responses concise (2 to 4 sentences), gentle, and human. " +
           (baseReply
             ? `Supportively guide the dialogue and naturally touch upon: "${baseReply}".`
@@ -268,7 +410,8 @@ export async function POST(request: Request) {
       }
     }
 
-    const sviScore = Math.min(85, Math.max(25, 30 + userText.length % 40));
+    const stressIndex = calculateStressIndex(userText, ageGroup, medicalHistory);
+    const traumaTypology = identifyTraumaTypology(userText, stressIndex.overall_score);
 
     return NextResponse.json({
       interaction_id: interactionId,
@@ -279,25 +422,40 @@ export async function POST(request: Request) {
       interpretation: { intent: "support_inquiry", confidence: 0.9 },
       citations: [],
       assessment: {
-        svi_score: sviScore,
-        risk_category: sviScore > 60 ? "Moderate Support Indicated" : "Standard Support Indicated",
+        svi_score: stressIndex.overall_score,
+        risk_category: stressIndex.risk_category,
         confidence: "medium",
-        risk_reasons: ["Conversation review and complainant self-report"],
-        recommended_action: "Confidential guidance, psychosocial listening, and optional NHAA 14566 complaint filing.",
-        human_review_recommended: false,
+        risk_reasons: [
+          `Emotional Strain: ${stressIndex.emotional_strain}/100`,
+          `Somatic Load: ${stressIndex.somatic_load}/100`,
+          `Environmental & Safety Risk: ${stressIndex.environmental_risk}/100`,
+        ],
+        recommended_action:
+          "Confidential guidance, psychosocial listening, and optional NHAA reporting (Helpline: 14566 | Portal: https://nhaa.gov.in).",
+        human_review_recommended: stressIndex.overall_score >= 60,
         voice_signal_status: "available",
         disclaimer: "Support and triage tool only — not a clinical or legal diagnosis.",
-        crisis_mode: false,
+        crisis_mode: stressIndex.overall_score >= 80,
+        stress_index: stressIndex,
+        trauma_typology: traumaTypology,
+        age_group: ageGroup || "Unspecified",
+        medical_history: medicalHistory || "None reported",
       },
       draft_summary: draftSummary,
       crisis_mode: false,
       voice_signal_status: "available",
       conversation_mode: nextPhase === "ongoing_support" ? "ongoing_support" : "assessment",
       crisis_level: "none",
+      resources: {
+        nhaa_helpline: "14566",
+        nhaa_portal: "https://nhaa.gov.in",
+        tele_manas: "14416",
+        emergency: "112",
+      },
       video_room_url: null,
       escalation_event_id: null,
     });
-  } catch (error) {
+  } catch {
     // Return graceful recovery rather than 500
     return NextResponse.json(
       {

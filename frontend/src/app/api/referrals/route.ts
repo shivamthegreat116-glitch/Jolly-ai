@@ -17,8 +17,9 @@ export async function GET() {
     {
       name: "National Helpline Against Atrocities (NHAA)",
       contact: "14566",
+      portal_url: "https://nhaa.gov.in",
       service_type: "government",
-      notes: "Toll-free 24x7 support for victims of discrimination or atrocities (MoSJE).",
+      notes: "Toll-free 24x7 support and official Digital Grievance Portal for victims (MoSJE).",
     },
     {
       name: "KIRAN Mental Health Rehabilitation",

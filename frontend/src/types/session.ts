@@ -64,3 +64,49 @@ export interface InteractionObject {
   camera_frame?: string | null;
   timestamp: string;
 }
+
+export type AgeGroup =
+  | "under_18"
+  | "18_24"
+  | "25_40"
+  | "41_60"
+  | "60_plus"
+  | "prefer_not_to_say";
+
+export interface StressIndexBreakdown {
+  overall_score?: number; // 0 to 100
+  risk_category?: "Low Strain" | "Moderate Strain" | "High Strain" | "Severe Crisis Strain" | string;
+  emotional_strain: number; // 0 to 100
+  cognitive_strain?: number; // 0 to 100
+  cognitive_overwhelm?: number; // 0 to 100
+  somatic_load: number; // 0 to 100
+  relational_isolation: number; // 0 to 100
+  environmental_risk: number; // 0 to 100
+  composite_svi?: number;
+  severity_level?: "mild" | "moderate" | "high" | "acute" | string;
+  voice_acoustic_strain?: number; // 0 to 100
+}
+
+export interface TraumaTypology {
+  name?: string;
+  category: string;
+  description?: string;
+  display_name?: string;
+  severity?: "Mild" | "Moderate" | "Severe" | "Acute / Crisis" | string;
+  confidence?: string;
+  evidence_quotes?: string[];
+  primary_indicators?: string[];
+  recommended_interventions?: string[];
+  disclaimer: string;
+}
+
+export interface MedicalHistoryContext {
+  has_conditions?: boolean;
+  chronic_conditions?: string[];
+  current_treatments?: string[];
+  mobility_or_sensory?: string[];
+  substance_or_medication_considerations?: string[];
+  self_reported_notes?: string;
+  notes?: string;
+  somatic_interaction?: string;
+}

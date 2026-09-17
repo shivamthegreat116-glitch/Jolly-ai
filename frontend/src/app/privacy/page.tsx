@@ -306,6 +306,15 @@ export default function PrivacyPage() {
                 href="tel:112"
               >
                 112
+              </a>
+              , or access the official{" "}
+              <a
+                className="font-semibold text-primary underline underline-offset-2"
+                href="https://nhaa.gov.in"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                NHAA Digital Portal
               </a>{" "}
               anytime.
             </p>

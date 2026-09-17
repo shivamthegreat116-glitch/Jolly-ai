@@ -7,6 +7,7 @@ export interface ReferralItem {
   id?: string;
   name: string;
   contact: string;
+  portal_url?: string;
   notes: string;
   service_type: string;
   region?: string;
@@ -38,8 +39,9 @@ export function EmergencyButton({
         {
           name: "National Helpline Against Atrocities (NHAA)",
           contact: "14566",
+          portal_url: "https://nhaa.gov.in",
           service_type: "government",
-          notes: "24/7 Toll-free assistance across India.",
+          notes: "24/7 Toll-free assistance & digital reporting portal across India.",
         },
         {
           name: "National Emergency Service",
@@ -50,6 +52,7 @@ export function EmergencyButton({
         {
           name: "Tele-MANAS (Mental Health)",
           contact: "14416 / 1800-891-4416",
+          portal_url: "https://telemanas.mohfw.gov.in",
           service_type: "helpline",
           notes: "24/7 Free confidential psychosocial support (MoHFW).",
         },
@@ -101,7 +104,7 @@ export function EmergencyButton({
 
             <p className="mt-3.5 font-body-sm text-body-sm text-text-secondary leading-relaxed">
               Jolly AI does not make automatic phone calls on your behalf. If you are in immediate danger,
-              please reach out directly using the verified 24/7 Indian emergency numbers below:
+              please reach out directly using the verified 24/7 Indian emergency numbers and digital portals below:
             </p>
 
             {loading ? (
@@ -111,19 +114,32 @@ export function EmergencyButton({
                 {items.map((it) => (
                   <li
                     key={it.name}
-                    className="rounded-xl border border-border-subtle bg-bg-subtle/70 p-3.5 flex items-start justify-between gap-3 hover:bg-bg-subtle transition-colors"
+                    className="rounded-xl border border-border-subtle bg-bg-subtle/70 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-bg-subtle transition-colors"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="font-label-md text-label-md font-semibold text-text-primary">{it.name}</div>
                       <div className="font-body-sm text-body-sm text-text-secondary mt-0.5">{it.notes}</div>
                     </div>
-                    <a
-                      href={`tel:${it.contact.replace(/[^0-9]/g, "")}`}
-                      className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-crisp border border-border-subtle text-primary font-label-md text-label-md font-semibold hover:bg-surface-container transition-colors shadow-2xs"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">call</span>
-                      <span>{it.contact}</span>
-                    </a>
+                    <div className="shrink-0 flex items-center gap-2 flex-wrap">
+                      {it.portal_url && (
+                        <a
+                          href={it.portal_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-crisp border border-border-subtle text-primary font-label-md text-label-md font-semibold hover:bg-surface-container transition-colors shadow-2xs"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">language</span>
+                          <span>Portal</span>
+                        </a>
+                      )}
+                      <a
+                        href={`tel:${it.contact.replace(/[^0-9]/g, "")}`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-surface-crisp border border-border-subtle text-primary font-label-md text-label-md font-semibold hover:bg-surface-container transition-colors shadow-2xs"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">call</span>
+                        <span>{it.contact}</span>
+                      </a>
+                    </div>
                   </li>
                 ))}
               </ul>
